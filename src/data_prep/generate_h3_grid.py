@@ -143,28 +143,63 @@ if n_unassigned > 0:
 joined = joined.rename(columns={"st_nm": "state"})
 result = joined[["h3_index", "center_lat", "center_lon", "district", "state"]].copy()
 
+# CRITICAL: deduplicate BEFORE checking district completeness below. If any
+# hexagon's center matched more than one district (possible if neighboring
+# district polygons have tiny topology overlaps), gpd.sjoin produces
+# multiple rows for that one hex. Checking completeness before dedup can
+# make small districts APPEAR covered here, only for the later dedup step
+# to silently drop their only row -- making them vanish from the final
+# file without ever being caught. Deduping first closes that gap.
+n_before_dedup = len(result)
+result = result.drop_duplicates(subset="h3_index", keep="first")
+n_dropped_as_dupe = n_before_dedup - len(result)
+if n_dropped_as_dupe > 0:
+    print(f"  Note: {n_dropped_as_dupe} hexagon(s) had ambiguous multi-district "
+          f"matches (likely tiny polygon overlaps in the boundary file); "
+          f"kept one assignment each.")
+
 # ----------------------------------------------------------------------
 # 4. Ensure every district has at least 1 hexagon (tiny UTs etc.)
+#
+# IMPORTANT: keyed on (state, district) tuples, NOT district name alone --
+# several district names repeat across different states (e.g. "Bilaspur"
+# exists in both Chhattisgarh and Himachal Pradesh), so using the bare
+# name would let one state's coverage silently mask another same-named
+# district elsewhere having zero hexagons. This is the same rule we
+# established when cleaning the boundary file originally.
 # ----------------------------------------------------------------------
 
-districts_with_hex = set(result["district"].unique())
-all_districts = set(districts["district"].unique())
+districts_with_hex = set(zip(result["state"], result["district"]))
+all_districts = set(zip(districts["st_nm"], districts["district"]))
 missing_districts = all_districts - districts_with_hex
 print(f"\nDistricts with ZERO hexagons "
-      f"(smaller than a single resolution-{RESOLUTION} cell): {len(missing_districts)}")
+      f"(smaller than a single resolution-{RESOLUTION} cell, or lost to "
+      f"the dedup above): {len(missing_districts)}")
 
 if missing_districts:
     print(f"  Adding a fallback centroid-snapped hexagon for: {sorted(missing_districts)}")
     extra_records = []
-    for dname in missing_districts:
-        drow = districts[districts["district"] == dname].iloc[0]
+    for state_name, dname in missing_districts:
+        drow = districts[(districts["st_nm"] == state_name) & (districts["district"] == dname)].iloc[0]
         centroid = drow.geometry.centroid
         cell = h3.latlng_to_cell(centroid.y, centroid.x, RESOLUTION)
         extra_records.append({
             "h3_index": cell, "center_lat": centroid.y, "center_lon": centroid.x,
-            "district": dname, "state": drow["st_nm"],
+            "district": dname, "state": state_name,
         })
     result = pd.concat([result, pd.DataFrame(extra_records)], ignore_index=True)
+    # a fallback hex's index might collide with an EXISTING hex already
+    # claimed by a different district -- if so, the fallback must win
+    # (keep="last"), since without it that district would have zero
+    # hexagons again, which is exactly the bug we're fixing here.
+    result = result.drop_duplicates(subset="h3_index", keep="last")
+
+# final safety check -- this should now always print 0
+still_missing = all_districts - set(zip(result["state"], result["district"]))
+if still_missing:
+    print(f"  WARNING: {len(still_missing)} districts still missing after fallback: {sorted(still_missing)}")
+else:
+    print("  All districts now have at least one hexagon, confirmed.")
 
 result = result.drop_duplicates(subset="h3_index", keep="first")
 
@@ -177,11 +212,15 @@ print(f"\nSaved {len(result)} hexagons to {OUTPUT_CSV}")
 
 print("\n=== VALIDATION ===")
 print(f"Total hexagons: {len(result)}")
-print(f"Distinct districts covered: {result['district'].nunique()} / {len(districts)}")
+n_state_district_covered = result.drop_duplicates(subset=["state", "district"]).shape[0]
+print(f"Distinct (state, district) pairs covered: {n_state_district_covered} / {len(districts)}")
+print(f"Distinct district NAMES covered (informational only, names repeat across states): "
+      f"{result['district'].nunique()} / {districts['district'].nunique()}")
 print(f"Distinct states covered: {result['state'].nunique()} / {districts['st_nm'].nunique()}")
 print(f"Duplicate h3_index: {result['h3_index'].duplicated().sum()}")
-print(f"Hexagons per district (min/median/max): "
-      f"{result.groupby('district').size().min()} / "
-      f"{result.groupby('district').size().median()} / "
-      f"{result.groupby('district').size().max()}")
+per_district_counts = result.groupby(["state", "district"]).size()
+print(f"Hexagons per (state,district) (min/median/max): "
+      f"{per_district_counts.min()} / {per_district_counts.median()} / {per_district_counts.max()}")
+print(f"  Largest: {per_district_counts.idxmax()} with {per_district_counts.max()} hexagons")
+print(f"  Smallest: {per_district_counts.idxmin()} with {per_district_counts.min()} hexagon(s)")
 print("\nPlease upload india_h3_grid_res7.csv back to continue.")
