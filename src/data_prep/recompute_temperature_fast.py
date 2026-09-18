@@ -46,10 +46,15 @@ warnings.filterwarnings("ignore")
 
 START_YEAR = 2000
 END_YEAR = 2024
-DISTRICTS_GEOJSON = "india_districts_clean.geojson"
-EXISTING_CSV = "imd_district_weekly_weather_2000_2024.csv"
-OUTPUT_CSV = "imd_district_weekly_weather_2000_2024_FIXED.csv"
-DATA_DIR = "imd_raw_data"
+from pathlib import Path as FilePath
+
+SCRIPT_DIR = FilePath(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parent.parent
+DISTRICTS_GEOJSON = PROJECT_ROOT / "data" / "boundaries" / "india_districts_clean.geojson"
+OUTPUT_DIR = PROJECT_ROOT / "data" / "processed"
+EXISTING_CSV = OUTPUT_DIR / "imd_district_weekly_weather_2000_2024.csv"
+OUTPUT_CSV = OUTPUT_DIR / "imd_district_weekly_weather_2000_2024_FIXED.csv"
+DATA_DIR = PROJECT_ROOT / "imd_raw_data"
 
 # ----------------------------------------------------------------------
 # 1. Load districts and existing (correct) rainfall data

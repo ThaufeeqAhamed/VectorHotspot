@@ -46,12 +46,19 @@ warnings.filterwarnings("ignore")
 
 START_YEAR = 2000
 END_YEAR = 2024
-DISTRICTS_GEOJSON = "india_districts_clean.geojson"
-OUTPUT_CSV = "imd_district_weekly_weather_2000_2024.csv"
-DATA_DIR = "imd_raw_data"  # NEW downloads go here
+from pathlib import Path as FilePath
+
+SCRIPT_DIR = FilePath(__file__).resolve().parent          # .../src/data_prep
+PROJECT_ROOT = SCRIPT_DIR.parent.parent                    # .../VectorHotspot
+DISTRICTS_GEOJSON = PROJECT_ROOT / "data" / "boundaries" / "india_districts_clean.geojson"
+OUTPUT_DIR = PROJECT_ROOT / "data" / "processed"
+OUTPUT_CSV = OUTPUT_DIR / "imd_district_weekly_weather_2000_2024.csv"
+DATA_DIR = PROJECT_ROOT / "imd_raw_data"  # kept at project root -- already downloaded here, not moved
+
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 # Older runs may have saved files directly to ./rain, ./tmax, ./tmin instead --
 # check both locations so already-downloaded years are never redownloaded.
-CANDIDATE_DATA_DIRS = ["imd_raw_data", "."]
+CANDIDATE_DATA_DIRS = [str(DATA_DIR), "."]
 
 MAX_RETRIES = 5
 RETRY_WAIT_SECONDS = 45  # IMD's server needs a breather between failures

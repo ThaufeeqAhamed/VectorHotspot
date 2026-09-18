@@ -13,10 +13,21 @@ import numpy as np
 import tifffile
 from matplotlib.path import Path
 import pandas as pd
+from pathlib import Path as FilePath
 
-DISTRICTS_GEOJSON = "/mnt/user-data/outputs/india_districts_clean.geojson"
+# Resolve paths relative to this script's own location (src/data_prep/),
+# not the current working directory.
+SCRIPT_DIR = FilePath(__file__).resolve().parent          # .../src/data_prep
+PROJECT_ROOT = SCRIPT_DIR.parent.parent                    # .../VectorHotspot
+DISTRICTS_GEOJSON = PROJECT_ROOT / "data" / "boundaries" / "india_districts_clean.geojson"
+RAW_TIF_DIR = PROJECT_ROOT / "data" / "raw" / "population"  # place the 5 downloaded .tif files here
+OUTPUT_DIR = PROJECT_ROOT / "data" / "processed"
 YEARS = [2000, 2005, 2010, 2015, 2020]
-TIF_TEMPLATE = "/mnt/user-data/uploads/ind_ppp_{year}_1km_Aggregated.tif"
+TIF_TEMPLATE = str(RAW_TIF_DIR / "ind_ppp_{year}_1km_Aggregated.tif")
+
+if not DISTRICTS_GEOJSON.exists():
+    raise FileNotFoundError(f"Could not find {DISTRICTS_GEOJSON}")
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # ----------------------------------------------------------------------
 # Load district boundaries
@@ -136,5 +147,6 @@ for year in YEARS:
 
 all_records = [r for recs in all_results.values() for r in recs]
 df = pd.DataFrame(all_records)
-df.to_csv("/home/claude/district_population_2000_2020.csv", index=False)
+df.to_csv(OUTPUT_DIR / "district_population_2000_2020.csv", index=False)
+print(f"Saved to {OUTPUT_DIR / 'district_population_2000_2020.csv'}")
 print(f"\nSaved {len(df)} rows to district_population_2000_2020.csv")
