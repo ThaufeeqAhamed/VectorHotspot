@@ -1,0 +1,7 @@
+imd_raw_data/
+*.tif
+*.grd
+*.nc
+__pycache__/
+.ipynb_checkpoints/
+*.pyc
