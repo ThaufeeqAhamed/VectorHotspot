@@ -1,0 +1,27 @@
+VectorHotspot Disaggregation Model Fit Report
+Generated: 2026-09-25 01:09:49.209868
+============================================================
+
+
+=== DENGUE DISAGGREGATION ===
+Fitted coefficients: b0 = -10.4673, b1 = 0.7662
+Population coefficient interpretation: POSITIVE (urban/high-density concentration)
+Mass preservation validation:
+  Max absolute error: 0.000000
+  Mean absolute error: 0.000000
+  Units validated: 444
+
+
+=== MALARIA DISAGGREGATION ===
+Fitted coefficients: b0 = -5.6986, b1 = -1.2485
+Population coefficient interpretation: NEGATIVE (rural/low-density concentration)
+Mass preservation validation:
+  Max absolute error: 0.000000
+  Mean absolute error: 0.000000
+  Units validated: 8,047
+
+FINAL SUMMARY:
+Total predicted dengue cases: 1,754,044
+Total predicted malaria cases: 16,147,384
+Dengue hexagon-years: 7,593,739
+Malaria hexagon-years: 6,745,961

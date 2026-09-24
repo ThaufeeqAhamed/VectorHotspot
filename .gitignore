@@ -6,3 +6,8 @@ __pycache__/
 .ipynb_checkpoints/
 *.pyc
 brain.md
+
+# Large disaggregation output files (regenerable via script)
+data/processed/*_hex_annual.csv
+data/processed/dengue_hex_annual.csv
+data/processed/malaria_hex_annual.csv
