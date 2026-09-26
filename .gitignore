@@ -11,6 +11,10 @@ brain.md
 data/processed/*_hex_annual.csv
 data/processed/dengue_hex_annual.csv
 data/processed/malaria_hex_annual.csv
+data/processed/*_hex_weekly.parquet/
+data/processed/dengue_hex_weekly.parquet/
+data/processed/malaria_hex_weekly.parquet/
+*.parquet
 
 # Tier 2 raw raster downloads (large, re-downloadable)
 data/raw/ndvi/
