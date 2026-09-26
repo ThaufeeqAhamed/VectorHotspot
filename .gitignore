@@ -26,6 +26,9 @@ data/processed/malaria_hex_weekly.parquet/
 data/processed/features_*.parquet
 *.parquet
 *.npz
+models/
+*.joblib
+*.pkl
 
 # Model weights, artifacts & Optuna study DBs (Phase 9+)
 models/

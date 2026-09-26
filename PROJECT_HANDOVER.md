@@ -21,7 +21,7 @@
 - **Research objective (reconstructed, not literally user-stated as a formal RQ):** Can dengue and malaria case counts, available in India only at state/district resolution, be validly disaggregated to H3-hexagon resolution using open covariates, and can the resulting fine-resolution risk surface support meaningful future-hotspot prediction validated against real subsequently-observed outcomes?
 - **Engineering objective:** Build a fully reproducible pipeline using only real (non-synthetic) data in the final version; synthetic data was explicitly used ONLY to prove the disaggregation method works before touching real data, per user's explicit instruction ("we dont want... synthetic ones").
 - **SDG alignment:** UNKNOWN/NOT CONFIRMED — never discussed by the user, though the subject matter self-evidently relates to public health.
-- **Current maturity/stage:** Phases 1–8 complete and fully verified. Tier 1 & Tier 2 data collected/processed, H3 grid res-7 generated, multi-covariate spatial disaggregation completed (0.000000 error), biophysical temporal disaggregation completed across 747,903,370 weekly rows (0.000000 error), and Spatiotemporal Feature Store engineered (61,642,778 records across 52 feature dimensions, zero leakage, strict 15% spatial holdouts and temporal train/val/test splits). Ready for Phase 9: Dual-Disease Forecasting Models (LightGBM & XGBoost).
+- **Current maturity/stage:** Phases 1–9 complete and fully verified. Tier 1 & Tier 2 data collected/processed, H3 grid res-7 generated, multi-covariate spatial disaggregation completed (0.000000 error), biophysical temporal disaggregation completed across 747,903,370 weekly rows (0.000000 error), Spatiotemporal Feature Store engineered (61.6M rows, 52 features), and Dual-Disease Multi-Horizon Forecasting Models trained and evaluated across horizons t+1 to t+4 (LightGBM & XGBoost achieving R² 0.87–0.95, strictly beating naive persistence and seasonal baselines on unseen 2023–2024 test data and spatial holdouts). Ready for Phase 10: Forecast-to-Hotspot Fusion (Getis-Ord Gi* on Predicted Risk Surfaces).
 
 ---
 
@@ -407,12 +407,12 @@ VectorHotspot/                          (GitHub: ThaufeeqAhamed/VectorHotspot, p
 - **What was the last successful action:** Claude tested the fixed (BOM-safe) version of `wire_disaggregation_model.py` end-to-end in its own sandbox against the real project files and confirmed it reproduces the same correct results (dengue: 7,796,424-row hex-year table, 451 unit-years, mass-preservation exact). The user was told to replace their local script and rerun.
 - **What was the last failed step (now fixed):** A `KeyError: 'h3_index'` when merging the hexagon-population CSV, traced to a likely BOM character from a Windows CSV save — fixed by adding `encoding="utf-8-sig"` and column-name stripping to all `pd.read_csv()` calls in the script.
 - **Files most recently changed:** `wire_disaggregation_model.py` (BOM fix, most recent); before that, `malaria_district_2000_2024.csv` (state-mislabeling fix — this OVERWROTE the previous version).
-- **Current blocker:** NONE technical. Phase 8 is complete and verified.
+- **Current blocker:** NONE technical. Phase 9 is complete and verified.
 - **What should happen next (in order):**
-  1. Commit Phase 8 deliverables (`src/features/build_spatial_adjacency.py`, `src/features/build_feature_store.py`, `src/features/verify_feature_store.py`, `src/features/plot_feature_diagnostics.py`, `outputs/figures/feature_store_diagnostics.png`, `data/processed/feature_store_metadata.json`, and documentation) to the GitHub repo.
-  2. Proceed to Phase 9: Dual-Disease Forecasting Models (LightGBM / XGBoost multi-horizon direct forecasting for $t+1 \dots t+4$ weeks with Tweedie / Poisson deviance loss, Optuna hyperparameter optimization, and naive/seasonal baselines).
-- **Current phase:** Phase 8 (Spatiotemporal Feature Engineering) — 100% COMPLETE & VERIFIED.
-- **Phase immediately after:** Phase 9 (Dual-Disease Forecasting Models).
+  1. Commit Phase 9 deliverables (`src/models/train_forecasting_models.py`, `src/models/plot_forecasting_results.py`, `src/models/verify_forecasting_models.py`, `outputs/figures/forecasting_models_evaluation.png`, `outputs/tables/model_evaluation_metrics.csv`, and documentation) to the GitHub repo.
+  2. Proceed to Phase 10: Forecast-to-Hotspot Fusion (Getis-Ord Gi* local spatial autocorrelation computed directly on PREDICTED future risk surfaces $\hat{Y}_{t+1 \dots t+4}$, spatial weight matrix $W_1$, and hotspot taxonomy: Emerging, Intensifying, Persistent, Diminishing).
+- **Current phase:** Phase 9 (Dual-Disease Multi-Horizon Forecasting Models) — 100% COMPLETE & VERIFIED.
+- **Phase immediately after:** Phase 10 (Forecast-to-Hotspot Fusion via Getis-Ord Gi*).
 
 ---
 
