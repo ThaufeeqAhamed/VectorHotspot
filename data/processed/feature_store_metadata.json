@@ -1,0 +1,30 @@
+{
+  "phase": "Phase 8: Spatiotemporal Feature Engineering",
+  "generated_at": "2026-09-27 03:43:32",
+  "temporal_splits": {
+    "train_years": "<= 2020",
+    "val_years": [
+      2021,
+      2022
+    ],
+    "test_years": [
+      2023,
+      2024
+    ]
+  },
+  "spatial_holdout_percentage": 15.0,
+  "dengue_metadata": {
+    "train_samples": 16834460,
+    "val_samples": 3725072,
+    "test_samples": 3725072,
+    "outbreak_threshold": 0.0032853869780975634,
+    "features_count": 52
+  },
+  "malaria_metadata": {
+    "train_samples": 29908030,
+    "val_samples": 3725072,
+    "test_samples": 3725072,
+    "outbreak_threshold": 0.05816677441052211,
+    "features_count": 52
+  }
+}

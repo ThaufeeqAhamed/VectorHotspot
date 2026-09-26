@@ -1,27 +1,51 @@
+# Raw datasets & downloads (large, re-downloadable)
 imd_raw_data/
+data/raw/
 *.tif
+*.tiff
 *.grd
 *.nc
-__pycache__/
-.ipynb_checkpoints/
-*.pyc
-brain.md
+*.hdf
 
-# Large disaggregation output files (regenerable via script)
+# Python runtime & cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.ipynb_checkpoints/
+.pytest_cache/
+.coverage
+
+# Large processed data tables & feature store (regenerable via pipeline scripts)
 data/processed/*_hex_annual.csv
 data/processed/dengue_hex_annual.csv
 data/processed/malaria_hex_annual.csv
 data/processed/*_hex_weekly.parquet/
 data/processed/dengue_hex_weekly.parquet/
 data/processed/malaria_hex_weekly.parquet/
+data/processed/features_*.parquet
 *.parquet
+*.npz
 
-# Tier 2 raw raster downloads (large, re-downloadable)
-data/raw/ndvi/
-data/raw/worldcover/
-data/raw/jrc_water/
-*.hdf
+# Model weights, artifacts & Optuna study DBs (Phase 9+)
+models/
+*.joblib
+*.pkl
+*.pickle
+*.model
+*.booster
+*.bin
+*.db
+*.sqlite
+*.sqlite3
 
-# Tier 2 processing cache and checkpoints (local only)
-data/raw/hex_grid_cache.gpkg
-data/raw/checkpoints/
+# IDE and OS files
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Project notes / local scratch
+brain.md
