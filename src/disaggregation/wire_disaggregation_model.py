@@ -103,7 +103,7 @@ def interpolate_population(hex_pop_wide, target_years):
 
 
 def fit_and_disaggregate(case_df, unit_cols, case_col, hex_pop_wide, hex_grid,
-                         disease_name, report_file=None):
+                         disease_name, report_file=None, tier2_df=None):
     """
     Generic disaggregation via Poisson regression with an aggregation constraint.
 
@@ -167,50 +167,86 @@ def fit_and_disaggregate(case_df, unit_cols, case_col, hex_pop_wide, hex_grid,
     if modeling_data.empty:
         raise ValueError(f"No matching data for {disease_name} - check join keys")
 
-    # Features
+    # Base feature: log population (standardized)
     modeling_data['log_pop'] = np.log1p(modeling_data['population'])
     modeling_data['log_pop_std'] = (
         modeling_data['log_pop'] - modeling_data['log_pop'].mean()
     ) / modeling_data['log_pop'].std()
 
+    # Tier 2 covariates (optional)
+    TIER2_COLS = ['ndvi_mean', 'frac_water', 'frac_trees', 'frac_built', 'frac_shrub', 'jrc_occurrence']
+    active_tier2 = []
+    if tier2_df is not None:
+        modeling_data = modeling_data.merge(tier2_df[['h3_index'] + TIER2_COLS],
+                                            on='h3_index', how='left')
+        for col in TIER2_COLS:
+            if col in modeling_data.columns:
+                median_val = modeling_data[col].median()
+                modeling_data[col] = modeling_data[col].fillna(median_val)
+                std_col = f'{col}_std'
+                col_std = modeling_data[col].std()
+                if col_std > 0:
+                    modeling_data[std_col] = (
+                        (modeling_data[col] - modeling_data[col].mean()) / col_std
+                    )
+                    active_tier2.append(std_col)
+        print(f"Tier 2 covariates active: {active_tier2}")
+    else:
+        print("No Tier 2 covariates (population-only model)")
+
+    covariate_cols = ['log_pop_std'] + active_tier2
+
     group_cols = unit_cols + ['year']
     modeling_data['group_id'] = modeling_data.groupby(group_cols).ngroup()
     n_groups = int(modeling_data['group_id'].max()) + 1
-    print(f"Fitting Poisson regression over {n_groups:,} aggregation groups...")
+    print(f"Fitting Poisson regression over {n_groups:,} aggregation groups "
+          f"with {len(covariate_cols)} covariate(s)...")
 
     group_ids = modeling_data['group_id'].values
-    obs_vals = modeling_data[case_col].values
-    logpop_std = modeling_data['log_pop_std'].values
-    pop_vals = modeling_data['population'].values
+    obs_vals  = modeling_data[case_col].values
+    pop_vals  = modeling_data['population'].values
 
-    # Observed total per aggregation group (not summed across all member hexagons)
+    # Stack covariates into a (n_hex_years, n_covariates) matrix — fast dot product in likelihood
+    X = np.column_stack([modeling_data[c].values for c in covariate_cols])  # shape (N, K)
+
+    # Observed total per group (first() — all hexagons in a group share the same observed total)
     group_obs = modeling_data.groupby('group_id')[case_col].first().values
 
     def neg_log_likelihood(params):
-        beta0, beta1 = params
-        rate = pop_vals * np.exp(beta0 + beta1 * logpop_std)
+        beta0  = params[0]
+        betas  = params[1:]                          # shape (K,)
+        linear = beta0 + X.dot(betas)               # shape (N,)
+        rate   = pop_vals * np.exp(linear)
         group_pred = np.bincount(group_ids, weights=rate)
         epsilon = 1e-10
         log_lik = np.sum(group_obs * np.log(group_pred + epsilon) - group_pred)
         return -log_lik
 
     print("Optimizing...")
-    result = optimize.minimize(neg_log_likelihood, x0=[0.0, 0.0],
-                               method='L-BFGS-B', options={'maxiter': 1000})
+    x0 = np.zeros(1 + len(covariate_cols))
+    result = optimize.minimize(neg_log_likelihood, x0=x0,
+                               method='L-BFGS-B', options={'maxiter': 2000})
     if not result.success:
         warnings.warn(f"Optimization did not converge for {disease_name}: {result.message}")
 
-    beta0, beta1 = result.x
-    print(f"Fitted coefficients: b0 = {beta0:.4f}, b1 = {beta1:.4f}")
+    beta0  = result.x[0]
+    betas  = result.x[1:]
+    coef_names = ['intercept'] + covariate_cols
+
+    print(f"Fitted coefficients:")
+    for name, val in zip(coef_names, result.x):
+        print(f"  {name}: {val:.4f}")
+
     if report_file:
-        report_file.write(f"Fitted coefficients: b0 = {beta0:.4f}, b1 = {beta1:.4f}\n")
-        report_file.write("Population coefficient interpretation: ")
-        report_file.write("POSITIVE (urban/high-density concentration)\n" if beta1 > 0
-                          else "NEGATIVE (rural/low-density concentration)\n")
+        report_file.write("Fitted coefficients:\n")
+        for name, val in zip(coef_names, result.x):
+            report_file.write(f"  {name}: {val:.4f}\n")
+        pop_sign = "POSITIVE (urban)" if betas[0] > 0 else "NEGATIVE (rural/forest)"
+        report_file.write(f"Population covariate: {pop_sign}\n")
 
     # Mass-preserving rescale (vectorized)
     print("Generating mass-preserving predictions...")
-    raw_pred = pop_vals * np.exp(beta0 + beta1 * logpop_std)
+    raw_pred = pop_vals * np.exp(beta0 + X.dot(betas))
     modeling_data['raw_pred'] = raw_pred
 
     group_raw_sum = modeling_data.groupby('group_id')['raw_pred'].transform('sum')
@@ -304,10 +340,24 @@ def main():
         report_file.write(f"Generated: {pd.Timestamp.now()}\n")
         report_file.write("=" * 60 + "\n\n")
 
+        # Load Tier 2 covariates if available (graceful fallback to population-only)
+        tier2_path = PROJECT_ROOT / 'data' / 'processed' / 'hex_tier2_covariates.csv'
+        if tier2_path.exists():
+            print(f"Loading Tier 2 covariates from {tier2_path}...")
+            tier2_df = pd.read_csv(tier2_path, encoding='utf-8-sig')
+            tier2_df.columns = tier2_df.columns.str.strip()
+            print(f"  {len(tier2_df):,} hexagons, columns: {list(tier2_df.columns)}")
+            report_file.write(f"Model: Population + Tier 2 covariates\n\n")
+        else:
+            tier2_df = None
+            print("Tier 2 covariates not found -- using population-only model")
+            report_file.write("Model: Population-only (Tier 2 covariates not present)\n\n")
+
         dengue_hex = fit_and_disaggregate(
             case_df=dengue_df, unit_cols=['state'], case_col='cases',
             hex_pop_wide=hex_pop, hex_grid=h3_grid,
-            disease_name='dengue', report_file=report_file)
+            disease_name='dengue', report_file=report_file,
+            tier2_df=tier2_df)
         dengue_out = PROJECT_ROOT / 'data' / 'processed' / 'dengue_hex_annual.csv'
         dengue_hex.to_csv(dengue_out, index=False, encoding='utf-8')
         print(f"Dengue results saved: {dengue_out}")
@@ -319,7 +369,8 @@ def main():
         malaria_hex = fit_and_disaggregate(
             case_df=malaria_df, unit_cols=['state', 'district'], case_col='cases',
             hex_pop_wide=hex_pop, hex_grid=h3_grid,
-            disease_name='malaria', report_file=report_file)
+            disease_name='malaria', report_file=report_file,
+            tier2_df=tier2_df)
         malaria_out = PROJECT_ROOT / 'data' / 'processed' / 'malaria_hex_annual.csv'
         malaria_hex.to_csv(malaria_out, index=False, encoding='utf-8')
         print(f"Malaria results saved: {malaria_out}")

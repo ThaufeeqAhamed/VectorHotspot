@@ -1,11 +1,21 @@
 VectorHotspot Disaggregation Model Fit Report
-Generated: 2026-09-25 01:09:49.209868
+Generated: 2026-09-26 13:26:58.188259
 ============================================================
+
+Model: Population + Tier 2 covariates
 
 
 === DENGUE DISAGGREGATION ===
-Fitted coefficients: b0 = -10.4673, b1 = 0.7662
-Population coefficient interpretation: POSITIVE (urban/high-density concentration)
+Fitted coefficients:
+  intercept: -10.9103
+  log_pop_std: 1.1089
+  ndvi_mean_std: -0.3255
+  frac_water_std: -0.1394
+  frac_trees_std: 0.6945
+  frac_built_std: -0.1183
+  frac_shrub_std: 0.6443
+  jrc_occurrence_std: 0.1363
+Population covariate: POSITIVE (urban)
 Mass preservation validation:
   Max absolute error: 0.000000
   Mean absolute error: 0.000000
@@ -13,8 +23,16 @@ Mass preservation validation:
 
 
 === MALARIA DISAGGREGATION ===
-Fitted coefficients: b0 = -5.6986, b1 = -1.2485
-Population coefficient interpretation: NEGATIVE (rural/low-density concentration)
+Fitted coefficients:
+  intercept: -36.3565
+  log_pop_std: -1.5221
+  ndvi_mean_std: -0.2709
+  frac_water_std: 0.1917
+  frac_trees_std: 1.2076
+  frac_built_std: 0.3223
+  frac_shrub_std: -137.6218
+  jrc_occurrence_std: -53.6164
+Population covariate: NEGATIVE (rural/forest)
 Mass preservation validation:
   Max absolute error: 0.000000
   Mean absolute error: 0.000000
