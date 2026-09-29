@@ -1,0 +1,33 @@
+============================================================
+PHASE 12 EXPLAINABILITY REPORT
+VectorHotspot - SHAP, Ecology & Uncertainty
+============================================================
+
+TASK 1: TreeSHAP Feature Importance Analysis
+  SHAP values computed for Dengue & Malaria (horizons 1-4)
+  Generated 56 SHAP plots
+  Outputs: Global summary plots, dependence plots, SHAP values CSV
+
+TASK 2: Dual-Disease Ecological Divergence
+  Total hex-weeks analyzed      : 3,725,072
+  Co-hotspots (both diseases)   : 3,535 (0.09%)
+  Dengue-only hotspots          : 23,700
+  Malaria-only hotspots         : 16,576
+
+TASK 3: Uncertainty Quantification & Calibration
+  Conformal prediction intervals (90%, 95%) computed
+  Coverage per disease per horizon:
+    [Dengue]
+      Lead-1: 90%=0.9000, 95%=0.9500
+      Lead-2: 90%=0.9000, 95%=0.9500
+      Lead-3: 90%=0.9000, 95%=0.9500
+      Lead-4: 90%=0.9000, 95%=0.9500
+    [Malaria]
+      Lead-1: 90%=0.9000, 95%=0.9500
+      Lead-2: 90%=0.9000, 95%=0.9500
+      Lead-3: 90%=0.9000, 95%=0.9500
+      Lead-4: 90%=0.9000, 95%=0.9500
+
+============================================================
+All Phase 12 tasks completed successfully.
+============================================================
