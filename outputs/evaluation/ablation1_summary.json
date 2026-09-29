@@ -1,0 +1,23 @@
+{
+  "dengue/C_Naive_Uniform": {
+    "mean_kl_divergence": 2.560605,
+    "mean_mape": 26499053.094766,
+    "mean_mass_error": 0.0
+  },
+  "dengue/D_Population_Share": {
+    "mean_kl_divergence": 0.650117,
+    "mean_mape": 11.992096,
+    "mean_mass_error": 0.0
+  },
+  "malaria/C_Naive_Uniform": {
+    "mean_kl_divergence": 0.798081,
+    "mean_mape": 183673127.7822,
+    "mean_mass_error": 0.0
+  },
+  "malaria/D_Population_Share": {
+    "mean_kl_divergence": 1.253685,
+    "mean_mape": 8272045.923867,
+    "mean_mass_error": 0.0
+  },
+  "full_model_mass_error": 0.0
+}

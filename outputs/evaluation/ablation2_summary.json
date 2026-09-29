@@ -1,0 +1,32 @@
+{
+  "dengue/A_H3_kring_neighbors": {
+    "mean_r2": 0.3235,
+    "mean_rmse": 0.3419,
+    "mean_iou": 0.821
+  },
+  "dengue/B_No_spatial_neighbors": {
+    "mean_r2": 0.3052,
+    "mean_rmse": 0.3465,
+    "mean_iou": 0.8207
+  },
+  "dengue/C_District_mean_neighbor": {
+    "mean_r2": 0.3504,
+    "mean_rmse": 0.3351,
+    "mean_iou": 0.819
+  },
+  "malaria/A_H3_kring_neighbors": {
+    "mean_r2": 0.9551,
+    "mean_rmse": 0.0743,
+    "mean_iou": 0.3092
+  },
+  "malaria/B_No_spatial_neighbors": {
+    "mean_r2": 0.9538,
+    "mean_rmse": 0.0753,
+    "mean_iou": 0.3131
+  },
+  "malaria/C_District_mean_neighbor": {
+    "mean_r2": 0.9567,
+    "mean_rmse": 0.0728,
+    "mean_iou": 0.3104
+  }
+}

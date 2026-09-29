@@ -1,0 +1,17 @@
+disease,horizon,variant,r2,rmse,iou,n_features
+dengue,1,A_With_Weather,0.3107,0.345077,0.8514,43
+dengue,1,B_No_Weather,0.3059,0.346274,0.8317,23
+dengue,2,A_With_Weather,0.3158,0.343842,0.8305,43
+dengue,2,B_No_Weather,0.3095,0.345422,0.8064,23
+dengue,3,A_With_Weather,0.3297,0.340378,0.8109,43
+dengue,3,B_No_Weather,0.31,0.34535,0.7821,23
+dengue,4,A_With_Weather,0.3379,0.338312,0.791,43
+dengue,4,B_No_Weather,0.3168,0.343658,0.7646,23
+malaria,1,A_With_Weather,0.96,0.070321,0.3075,43
+malaria,1,B_No_Weather,0.9577,0.072382,0.3029,23
+malaria,2,A_With_Weather,0.958,0.072003,0.3132,43
+malaria,2,B_No_Weather,0.9407,0.085547,0.3027,23
+malaria,3,A_With_Weather,0.9519,0.076912,0.3094,43
+malaria,3,B_No_Weather,0.9421,0.084447,0.2992,23
+malaria,4,A_With_Weather,0.9504,0.077779,0.3066,43
+malaria,4,B_No_Weather,0.9139,0.102464,0.2991,23

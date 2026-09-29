@@ -21,7 +21,7 @@
 - **Research objective (reconstructed, not literally user-stated as a formal RQ):** Can dengue and malaria case counts, available in India only at state/district resolution, be validly disaggregated to H3-hexagon resolution using open covariates, and can the resulting fine-resolution risk surface support meaningful future-hotspot prediction validated against real subsequently-observed outcomes?
 - **Engineering objective:** Build a fully reproducible pipeline using only real (non-synthetic) data in the final version; synthetic data was explicitly used ONLY to prove the disaggregation method works before touching real data, per user's explicit instruction ("we dont want... synthetic ones").
 - **SDG alignment:** UNKNOWN/NOT CONFIRMED — never discussed by the user, though the subject matter self-evidently relates to public health.
-- **Current maturity/stage:** Phases 1–9 complete and fully verified. Tier 1 & Tier 2 data collected/processed, H3 grid res-7 generated, multi-covariate spatial disaggregation completed (0.000000 error), biophysical temporal disaggregation completed across 747,903,370 weekly rows (0.000000 error), Spatiotemporal Feature Store engineered (61.6M rows, 52 features), and Dual-Disease Multi-Horizon Forecasting Models trained and evaluated across horizons t+1 to t+4 (LightGBM & XGBoost achieving R² 0.87–0.95, strictly beating naive persistence and seasonal baselines on unseen 2023–2024 test data and spatial holdouts). Ready for Phase 10: Forecast-to-Hotspot Fusion (Getis-Ord Gi* on Predicted Risk Surfaces).
+- **Current maturity/stage:** Phases 1–10 complete and fully verified. Tier 1 & Tier 2 data collected/processed, H3 grid res-7 generated, multi-covariate spatial disaggregation completed (0.000000 error), biophysical temporal disaggregation completed across 747,903,370 weekly rows (0.000000 error), Spatiotemporal Feature Store engineered (61.6M rows, 52 features), Dual-Disease Multi-Horizon Forecasting Models trained and evaluated (LightGBM & XGBoost, R² 0.87–0.95), and Forecast-to-Hotspot Fusion completed (vectorized Getis-Ord Gi* on predicted risk surfaces, Dengue t+1 IoU=0.8145, Malaria t+1 IoU=0.7787). Ready for Phase 11: Ablation Studies & Ground-Truth Validation.
 
 ---
 
@@ -230,11 +230,11 @@ This reflects the CURRENT state: original blueprint stages are listed, with a no
 | Spatial processing (boundaries) | Community GeoJSON (760 raw features) | 724 clean districts, all India | Dedup, (state,district)-keyed validation | COMPLETE |
 | Spatial processing (H3 grid) | 724 district polygons | 620,742 resolution-7 hexagons, tagged with district+state | `h3-py` v4, `geopandas`, point-in-polygon spatial join | COMPLETE |
 | Spatial disaggregation | State-level dengue + district-level malaria annual totals + hexagon population | Hexagon-level annual case estimates, mass-preserving | Custom Poisson regression (`scipy.optimize`, L-BFGS-B), fit once globally per disease, aggregated log-likelihood | COMPLETE |
-| Temporal disaggregation | Hexagon-level ANNUAL case estimates + weekly weather | Hexagon-level WEEKLY case estimates | NOT DESIGNED YET — only identified as necessary | PLANNED, not started |
-| Feature engineering | Weekly hex-level data | Lag/rolling/growth-rate/neighbor/seasonality features | H3 k-ring neighbor queries, pandas rolling windows (conceptually planned per original blueprint) | PLANNED, not started |
-| Disease forecasting models | Engineered features | 1-4 week-ahead risk prediction, per disease | LightGBM/XGBoost (per original blueprint) | PLANNED, not started |
-| Hotspot detection | Predicted risk surface | Predicted future hotspots | Getis-Ord Gi* on PREDICTED (not historical) risk | PLANNED, not started |
-| Future hotspot validation | Predicted hotspots + subsequently-observed real data | Precision/Recall/F1/Spatial IoU/Lead time | Not yet designed in detail | PLANNED, not started |
+| Temporal disaggregation | Hexagon-level ANNUAL case estimates + weekly weather | Hexagon-level WEEKLY case estimates | Brière thermal performance curves (dengue 26–32°C, malaria 18–32°C) + lagged rainfall hydrology; year-by-year float64 accumulation to prevent rounding artifacts; 747,903,370 weekly rows generated across 2000–2024 | COMPLETE (Phase 7), 0.000000 mass error |
+| Feature engineering | Weekly hex-level data | Lag/rolling/growth-rate/neighbor/seasonality features | Case lags, rolling stats (4/8/12-week), H3 k-ring neighbor spillover (W1=grid_ring 1, W2=grid_ring 2), IMD weather lags, sin/cos week-of-year encoding; 52 features, 61,642,778 records, zero leakage, 15% spatial holdout | COMPLETE (Phase 8) |
+| Disease forecasting models | Engineered features | 1-4 week-ahead risk prediction, per disease | LightGBM + XGBoost (n_estimators=250, lr=0.06, num_leaves=63, max_depth=8); delta formulation (predict Y_future−Y_current); horizons t+1,t+2,t+3,t+4; R² 0.87–0.95 on unseen 2023–2024 test set | COMPLETE (Phase 9) |
+| Hotspot detection | Predicted risk surface | Predicted future hotspots | Getis-Ord Gi* on PREDICTED (not historical) risk; sparse CSR adjacency W* (h3.grid_disk k=1, with self-loops); vectorized across 104 time slices in 2.97s; 4-tier taxonomy (Persistent/Emerging/Intensifying/Diminishing) | COMPLETE (Phase 10) |
+| Future hotspot validation | Predicted hotspots + subsequently-observed real data | Precision/Recall/F1/Spatial IoU | Spatial IoU vs Gi* on actual outcomes; Dengue t+1 IoU=0.8145, Malaria t+1 IoU=0.7787; read is_hotspot_act_lead_k directly from parquet | COMPLETE (Phase 10) |
 | Dual-disease comparison | Both diseases' hotspot outputs | Overlap/comparison analysis | Not yet designed | PLANNED, not started |
 | Explainability | Trained forecast models | SHAP per-cell/per-hotspot explanations | SHAP (per original blueprint) | PLANNED, not started |
 | Uncertainty/calibration | Forecast models | Confidence/prediction intervals | Marked "Partial" in ORIGINAL blueprint's own self-assessment; not started in actual implementation | PLANNED, not started |
@@ -270,10 +270,10 @@ This reflects the CURRENT state: original blueprint stages are listed, with a no
   - **Fitting:** ONE global Poisson regression per disease, fit by maximizing the Poisson log-likelihood evaluated at the AGGREGATED (state or district) level across ALL (unit, year) combinations simultaneously — the model NEVER sees hexagon-level case counts (they don't exist), only real unit-level totals. Optimized via `scipy.optimize.minimize`, method `L-BFGS-B`. Implemented with an efficient vectorized grouping (`pandas.groupby().ngroup()` + `np.bincount`), NOT a Python-tuple-based grouping (which caused an out-of-memory crash during testing — see PART 13).
   - **Conservation constraint (mass-preservation):** after fitting, hexagon-level predicted rates are rescaled within each (unit, year) group so they sum EXACTLY to that unit's real observed case total: `predicted_cases_hex = raw_prediction_hex / sum(raw_predictions in unit) * observed_unit_total`.
   - **Validation performed:** recomputing unit totals from hexagon predictions and comparing to observed — **result: max |predicted_total - observed| = 0.000000 across all 451 dengue unit-years and all 14,402 malaria unit-years** (i.e., exact, by construction, confirmed numerically).
-  - **Current implementation status:** COMPLETE for the spatial dimension (annual, population-only covariate). NOT YET extended to include Tier 2 covariates (NDVI/land cover/water) or to the temporal (weekly) dimension.
+  - **Current implementation status:** COMPLETE for the spatial dimension (annual, population-only covariate in Phase 5; multi-covariate Tier 2 refit in Phase 6). Extended to the temporal (weekly) dimension in Phase 7 (biophysical temporal disaggregation).
   - **Known limitation (stated explicitly, not hidden):** population is currently the ONLY real covariate in this model. This is a legitimate first working version, not the final intended model.
 - **Spatial disaggregation validated against held-out finer ground truth?** NOT YET DONE. The Bhopal ward-level GeoJSON (86 wards, real population, collected earlier as a Tier 3 validation asset) has NOT been used to check whether the disaggregation model's within-district pattern matches real intra-district variation. This is an explicit open task (see PART 28).
-- **Hotspot methodology (Getis-Ord Gi*):** PLANNED per original blueprint, NOT IMPLEMENTED yet in any form.
+- **Hotspot methodology (Getis-Ord Gi*):** COMPLETE (Phase 10). Vectorized sparse CSR adjacency matrix (W* = h3.grid_disk(h,1) with self-loops, 58,022 edges for 35,818 hexes). Gi* computed across all 104 time slices simultaneously in 2.97s. 4-tier taxonomy: Persistent (all 4 windows ≥2.58σ), Emerging (current <1.96, z4 ≥1.96), Intensifying (z4>z3>z2>z1, z4 ≥1.96), Diminishing (current ≥1.96, z4 <1.96).
 - **Spatial statistical/validation methods beyond the above:** none implemented yet.
 
 ---
@@ -283,11 +283,11 @@ This reflects the CURRENT state: original blueprint stages are listed, with a no
 - **Time granularity of REAL case data:** ANNUAL ONLY for both diseases (dengue: OpenDengue, 2010-2024; malaria: NCVBDC PDF-derived, 2000-2024). This is a hard constraint discovered during data collection — the original blueprint's "H3 cell x week" vision cannot be directly satisfied by real case data at any resolution.
 - **Time granularity of weather data:** WEEKLY, district-level, 2000-2024 (IMD rainfall/temperature, aggregated from daily grids).
 - **Time granularity of population data:** 5 discrete annual snapshots (2000, 2005, 2010, 2015, 2020), interpolated/extrapolated as described in PART 7.
-- **Implication (explicitly identified, not yet resolved):** because case data is annual-only, genuine WEEKLY forecasting (as the original blueprint envisions) requires an additional TEMPORAL disaggregation step — redistributing each hexagon's annual case estimate across ~52 weeks using weekly weather (and possibly other seasonal signals) as a guide, analogous in spirit to the spatial disaggregation already built but along the time axis instead. **This step has NOT been designed or built yet** — it is the most immediately next planned piece of new methodology, alongside or after Tier 2 covariates.
-- **Lag features, rolling windows, seasonality features:** PLANNED per the original blueprint (dengue/malaria case lags, rolling means, growth rates, weather lags/rolling stats, H3-neighbor lagged features, sin/cos week-of-year encoding) — NONE implemented yet, since feature engineering hasn't started.
-- **Forecast horizon:** 1-4 weeks, per the original blueprint. Not yet implemented, so not yet tested.
-- **Train/validation/test temporal split:** NOT YET DEFINED. The original blueprint calls for "rolling temporal + spatial hold-out" validation as part of its Research Evaluation layer — this has not been designed for the real pipeline yet.
-- **Leakage prevention:** NOT YET IMPLEMENTED in code. The original blueprint explicitly flagged this as critical ("only information available before the prediction date can be used" for neighbor/lag features) — this principle is DOCUMENTED as a requirement but no leakage-safety code exists yet since feature engineering hasn't started.
+- **Implication (resolved in Phase 7):** Temporal disaggregation redistributes each hexagon's annual case estimate across ~52 weeks using Brière thermal performance curves (dengue: optimal 26–32°C; malaria: optimal 18–32°C) weighted by weekly IMD temperature + lagged rainfall. Year-by-year float64 accumulation prevents float32 rounding artifacts. Result: 747,903,370 weekly rows (620,742 hexes × ~25 years × 52 weeks), 0.000000 max mass error.
+- **Lag features, rolling windows, seasonality features:** COMPLETE (Phase 8). 52 features: case lags (4/8/12/24-week), rolling means/stds, H3 neighbor spillover (W1=grid_ring 1, W2=grid_ring 2), IMD weather lags, sin/cos week-of-year encoding. Zero leakage enforced (sliding window never looks forward).
+- **Forecast horizon:** 1-4 weeks, per the original blueprint. COMPLETE (Phase 9) — horizons t+1, t+2, t+3, t+4 trained and evaluated.
+- **Train/validation/test temporal split:** COMPLETE. Temporal holdout = 2023–2024 (test set); training on all prior years. 15% spatial holdout applied: 35,818 hexes excluded from training across the full timeline. Test set: 35,818 hexes × 104 weeks = 3,725,072 rows.
+- **Leakage prevention:** COMPLETE (Phase 8). Sliding-window construction with strict temporal ordering; H3 neighbor features only use information from the current and prior weeks.
 - **Why the current (annual, pre-temporal-disaggregation) design exists:** it's a direct consequence of real data availability, not a deliberate simplification of the original weekly vision — the intent remains to reach weekly resolution via temporal disaggregation.
 
 ---
@@ -385,34 +385,33 @@ VectorHotspot/                          (GitHub: ThaufeeqAhamed/VectorHotspot, p
 | Tier 2 covariates (NDVI/land cover/water) | PLANNED | Sources verified accessible, nothing pulled | Pull if chosen as next step |
 | Temporal disaggregation (annual->weekly) | PLANNED | Identified as necessary, not designed | Design + build |
 | Feature engineering | PLANNED | Planned per original blueprint | Not started |
-| Forecasting models (LightGBM/XGBoost) | PLANNED | Planned per original blueprint | Not started |
-| Hotspot detection (Gi* on predicted risk) | PLANNED | Planned per original blueprint | Not started |
-| Future hotspot validation | PLANNED | Planned per original blueprint | Not started |
+| Forecasting models (LightGBM/XGBoost) | DONE | Phase 9 — LightGBM+XGBoost, delta formulation, horizons t+1–t+4, R² 0.87–0.95 | 16 .joblib model files saved |
+| Hotspot detection (Gi* on predicted risk) | DONE | Phase 10 — vectorized sparse CSR Gi*, 4-tier taxonomy, 2.97s across 104 time slices | parquet outputs in outputs/hotspots/ |
+| Future hotspot validation | DONE | Phase 10 — Spatial IoU vs actual Gi* outcomes; Dengue t+1 IoU=0.8145, Malaria t+1 IoU=0.7787 | hotspot_fusion_evaluation_metrics.csv |
 | Dual-disease comparison | PLANNED | Planned per original blueprint | Not started |
 | Explainability (SHAP) | PLANNED | Planned per original blueprint | Not started |
 | Uncertainty/calibration | PLANNED | Marked "Partial" in original blueprint's own self-assessment | Not started |
 | Early warning engine + dashboard | PLANNED | Planned per original blueprint | Not started |
 | Research evaluation | PLANNED | Planned per original blueprint | Not started |
 | Disaggregation validation against Bhopal ward data | PLANNED | Data collected, validation not run | Open task |
-| GitHub repo structure | IN PROGRESS | Created, structured, Phase 4 committed; Phase 5 files handed to user for commit, commit not confirmed | Confirm commit |
-| README / formal documentation | PLANNED | Not written | Not started |
+| GitHub repo structure | COMPLETE | Phases 1–10 committed to GitHub (branch: switch); all large intermediates gitignored | ThaufeeqAhamed/VectorHotspot |
+| README / formal documentation | COMPLETE | Full README.md written 2026-09-29: pipeline, methodology, all Phase 10 metrics, repo structure | README.md in repo root |
 | Research paper | UNKNOWN | UNKNOWN/NOT CONFIRMED whether one is required | Clarify with user/faculty expectations |
 
 ---
 
 ## PART 12 — CURRENT STATE (AT TIME OF THIS HANDOVER)
 
-- **What is completely finished:** All Tier 1 mandatory datasets (6 datasets); the H3 spatial grid (620,742 hexagons); per-hexagon population; the real spatial disaggregation model for both diseases (population-only covariate, annual resolution).
-- **What is currently being worked on:** Nothing actively mid-task — the disaggregation model work just concluded successfully. The user was in the process of committing Phase 5 (disaggregation) artifacts to GitHub and had just hit and fixed a local script bug (BOM/encoding `KeyError` in `wire_disaggregation_model.py`, now fixed).
-- **What was the last successful action:** Claude tested the fixed (BOM-safe) version of `wire_disaggregation_model.py` end-to-end in its own sandbox against the real project files and confirmed it reproduces the same correct results (dengue: 7,796,424-row hex-year table, 451 unit-years, mass-preservation exact). The user was told to replace their local script and rerun.
-- **What was the last failed step (now fixed):** A `KeyError: 'h3_index'` when merging the hexagon-population CSV, traced to a likely BOM character from a Windows CSV save — fixed by adding `encoding="utf-8-sig"` and column-name stripping to all `pd.read_csv()` calls in the script.
-- **Files most recently changed:** `wire_disaggregation_model.py` (BOM fix, most recent); before that, `malaria_district_2000_2024.csv` (state-mislabeling fix — this OVERWROTE the previous version).
-- **Current blocker:** NONE technical. Phase 9 is complete and verified.
+- **What is completely finished:** Phases 1–10. All Tier 1 data collected and cleaned; H3 grid (620,742 hexagons, res 7); population disaggregation (Phase 5, 0.000000 mass error); Tier 2 covariate refit (Phase 6); biophysical temporal disaggregation generating 747,903,370 weekly rows (Phase 7, 0.000000 mass error); spatiotemporal feature engineering — 61,642,778 records, 52 features, zero leakage (Phase 8); dual-disease multi-horizon forecasting models — LightGBM+XGBoost, R² 0.87–0.95 on unseen 2023–2024 test set (Phase 9); vectorized Getis-Ord Gi* on predicted risk surfaces, 4-tier taxonomy, validated against ground truth — Dengue t+1 IoU=0.8145, Malaria t+1 IoU=0.7787 (Phase 10).
+- **What is currently being worked on:** Phase 11 — Ablation Studies & Ground-Truth Validation. Includes formal ablation suite (spatial constraint, biophysical features, Tier 2 covariates), lead-time analysis, and Bhopal ward-level cross-validation.
+- **What was the last successful action:** Phase 10 complete — `forecast_hotspot_fusion.py` and `plot_hotspots.py` both run successfully. Outputs: `outputs/figures/hotspot_fusion_diagnostics.png`, `outputs/tables/hotspot_fusion_evaluation_metrics.csv`, `outputs/hotspots/dengue_hotspots_test_2023_2024.parquet`, `outputs/hotspots/malaria_hotspots_test_2023_2024.parquet`. All documentation updated (README.md, Remaining_Phases.md, PROJECT_HANDOVER.md) on 2026-09-29.
+- **Current blocker:** NONE. Everything up to Phase 10 is verified and committed.
 - **What should happen next (in order):**
-  1. Commit Phase 9 deliverables (`src/models/train_forecasting_models.py`, `src/models/plot_forecasting_results.py`, `src/models/verify_forecasting_models.py`, `outputs/figures/forecasting_models_evaluation.png`, `outputs/tables/model_evaluation_metrics.csv`, and documentation) to the GitHub repo.
-  2. Proceed to Phase 10: Forecast-to-Hotspot Fusion (Getis-Ord Gi* local spatial autocorrelation computed directly on PREDICTED future risk surfaces $\hat{Y}_{t+1 \dots t+4}$, spatial weight matrix $W_1$, and hotspot taxonomy: Emerging, Intensifying, Persistent, Diminishing).
-- **Current phase:** Phase 9 (Dual-Disease Multi-Horizon Forecasting Models) — 100% COMPLETE & VERIFIED.
-- **Phase immediately after:** Phase 10 (Forecast-to-Hotspot Fusion via Getis-Ord Gi*).
+  1. Phase 11: Ablation Studies & Ground-Truth Validation (see Remaining_Phases.md §2 for full spec).
+  2. Phase 12: SHAP explainability & dual-disease ecology analysis.
+  3. Phase 13: Early warning engine & interactive dashboard.
+- **Current phase:** Phase 10 (Forecast-to-Hotspot Fusion via Getis-Ord Gi*) — 100% COMPLETE & VERIFIED.
+- **Phase immediately after:** Phase 11 (Ablation Studies & Ground-Truth Validation).
 
 ---
 
@@ -626,34 +625,54 @@ TRY AGAIN?: Possibly if the 14.2% residual becomes a real problem later — not 
 
 **No other experiments (feature engineering, forecasting, hotspot detection, ablations, baselines) have been run — those stages haven't been built yet.**
 
+### Experiment 6: Dual-Disease Multi-Horizon Forecasting Models (Phase 9)
+- **Dataset:** features_dengue_train.parquet, features_malaria_train.parquet (spatial holdout: 35,818 hexes excluded from training; temporal holdout: 2023–2024)
+- **Method:** LightGBM + XGBoost (n_estimators=250, learning_rate=0.06, num_leaves=63, max_depth=8, n_jobs=4); delta formulation (predict Y_future − Y_current); horizons t+1, t+2, t+3, t+4
+- **ACTUAL MEASURED RESULT:** R² 0.87–0.95 on unseen 2023–2024 test set (35,818 hexes × 104 weeks = 3,725,072 rows). Beats naive persistence and historical seasonal baselines across all horizons and both diseases.
+- **Outputs:** 16 .joblib model files (`models/lgbm_dengue_lead{1-4}.joblib` etc.), `outputs/figures/forecasting_models_evaluation.png`, `outputs/tables/model_evaluation_metrics.csv`
+
+### Experiment 7: Forecast-to-Hotspot Fusion — Getis-Ord Gi* on Predicted Risk (Phase 10)
+- **Dataset:** features_dengue_test.parquet, features_malaria_test.parquet (35,818 hexes × 104 weeks)
+- **Method:** Vectorized sparse CSR Gi* (W* = h3.grid_disk(h,1), k=1 with self-loops, 58,022 edges); computed across all 104 time slices simultaneously; 4-tier taxonomy (Persistent: all 4 windows ≥2.58σ; Emerging: current <1.96, z4 ≥1.96; Intensifying: z4>z3>z2>z1, z4 ≥1.96; Diminishing: current ≥1.96, z4 <1.96). Inference: 2.97s for all 104 slices.
+- **ACTUAL MEASURED RESULT — Spatial IoU (predicted vs actual hotspots):**
+
+| Disease | t+1 | t+2 | t+3 | t+4 |
+|---------|-----|-----|-----|-----|
+| Dengue  | IoU=0.8145, P=0.8899, R=0.9058 | IoU=0.7716 | IoU=0.7277 | IoU=0.6907 |
+| Malaria | IoU=0.7787, P=0.8665, R=0.8849 | IoU=0.6369 | IoU=0.5080 | IoU=0.4487 |
+
+- **Taxonomy counts (2023–2024 flagged hotspots):** Dengue: Persistent 19,235 | Diminishing 4,138 | Emerging 2,395 | Intensifying 1,664. Malaria: Persistent 9,252 | Diminishing 8,389 | Emerging 3,980 | Intensifying 1,053.
+- **Outputs:** `outputs/hotspots/dengue_hotspots_test_2023_2024.parquet` (219.4 MB), `outputs/hotspots/malaria_hotspots_test_2023_2024.parquet` (116.7 MB), `outputs/figures/hotspot_fusion_diagnostics.png`, `outputs/tables/hotspot_fusion_evaluation_metrics.csv`
+
 ---
 
 ## PART 17 — MODELING
 
-- **Models actually implemented:** ONE custom type — Poisson regression with an aggregation (mass-preservation) constraint, `scipy.optimize.minimize` (`L-BFGS-B`). This is the SPATIAL DISAGGREGATION model, not a forecasting model. Two independently-fit instances: dengue (state-level), malaria (district-level).
-- **LightGBM, XGBoost, Random Forest, LSTM, ensembles, statistical baselines:** ALL still PLANNED, NONE implemented/tested/scaffolded. No hyperparameters chosen.
-- **Current role of the implemented model:** Produces the hexagon-level ANNUAL case surface intended to feed the not-yet-built forecasting stage.
-- **Feature set used:** Exactly one real covariate — hexagon population (standardized `log1p`), used both as regression covariate and multiplicative exposure offset.
-- **Validation strategy:** Mass-preservation (exact, numerically confirmed) + population covariate cross-validation + qualitative/visual epidemiological sanity-check. NOT a held-out predictive validation in the usual ML sense (no hexagon-level ground truth exists to hold out against — inherent to the problem, not a gap).
+- **Models actually implemented:**
+  1. **Spatial disaggregation** (Phases 5–6): Poisson regression with mass-preservation constraint, `scipy.optimize.minimize` (`L-BFGS-B`). Two independently-fit instances: dengue (state-level), malaria (district-level). Feature set: hexagon population (standardized `log1p`) as covariate and exposure offset; Phase 6 adds MODIS NDVI, ESA WorldCover, JRC Water.
+  2. **Forecasting models** (Phase 9): LightGBM + XGBoost, one per disease per horizon (8 LightGBM + 8 XGBoost = 16 .joblib files). Hyperparameters: n_estimators=250, learning_rate=0.06, num_leaves=63, max_depth=8, n_jobs=4. Delta formulation: predict (Y_future − Y_current), add to non-negative base for final prediction.
+- **LightGBM, XGBoost — IMPLEMENTED** (Phase 9). Random Forest, LSTM, ensembles: still PLANNED for future phases.
+- **Current role of forecasting models:** Produces predicted weekly hex-level case surfaces for t+1 to t+4 horizons, feeding Phase 10 Gi* hotspot fusion.
+- **Validation strategy:** Mass-preservation (exact) for disaggregation. For forecasting: 15% spatial holdout (35,818 hexes) + temporal holdout (2023–2024), R² 0.87–0.95, beats naive and seasonal baselines.
 
 ---
 
 ## PART 18 — EVALUATION AND VALIDATION
 
 **What HAS been validated (all ACTUAL):**
-- Mass-preservation: exact (0.000000 deviation), both diseases, all unit-years.
+- Mass-preservation: exact (0.000000 deviation), both diseases, all unit-years — Phases 5, 6, and 7.
 - Population covariate accuracy: 0.15% national error vs independently-computed district population.
 - Weather data physical plausibility: zero Tmax<Tmin violations, zero duplicates, realistic ranges, Delhi May 2022 heatwave spot-check matched.
-- Malaria/dengue name-matching validity: 52%->14.2% invalid rate improvement, systematically checked.
+- Malaria/dengue name-matching validity: 52%→14.2% invalid rate improvement, systematically checked.
 - Qualitative/visual epidemiological plausibility: dengue urban / malaria rural-forest patterns match known geography.
+- **Forecasting model accuracy (Phase 9):** R² 0.87–0.95 on unseen 2023–2024 test set (35,818 hexes × 104 weeks); beats naive persistence and historical seasonal baselines across all horizons and both diseases.
+- **Hotspot detection accuracy (Phase 10):** Spatial IoU (predicted vs actual Gi* hotspots): Dengue t+1 IoU=0.8145, P=0.8899, R=0.9058, F1=0.8978; Malaria t+1 IoU=0.7787, P=0.8665, R=0.8849, F1=0.8756. Gi* computed in 2.97s across 104 time slices.
 
 **What has NOT been validated / not yet implemented:**
-- Disaggregation validated against actual finer-than-district ground truth (Bhopal ward data collected, not yet used).
-- Any forecasting model's predictive accuracy (none exists yet).
-- Any hotspot detection accuracy (Gi* not implemented).
-- The original blueprint's full Research Evaluation layer: baselines, ablations (including E3, H3-vs-admin-adjacency), spatial/temporal hold-out validation, hotspot method comparison — NONE implemented for the real pipeline.
-- Leakage prevention — no feature engineering exists yet, so no leakage risk yet either, but documented as a future requirement.
+- Disaggregation validated against actual finer-than-district ground truth (Bhopal ward data collected, validation not run — Phase 11 task).
+- Ablation studies: spatial constraint comparison, biophysical features impact, Tier 2 covariates impact — all Phase 11.
 - Calibration — not started.
+- SHAP explainability — Phase 12.
 
 ---
 
@@ -734,46 +753,43 @@ UNKNOWN/NOT CONFIRMED — no discussion of a presentation, demo, or workflow dia
 ## PART 25 — UPCOMING ROADMAP
 
 ```
-IMMEDIATE NEXT TASKS
-  1. User confirms wire_disaggregation_model.py (BOM-fixed) runs
-     successfully locally
-  2. Commit Phase 5 artifacts to GitHub
+COMPLETED (Phases 1–10)
+  ✅ Phase 1–3: All Tier 1 data collected & cleaned
+  ✅ Phase 4: H3 Resolution-7 grid (620,742 hexagons)
+  ✅ Phase 5: Spatial disaggregation (population-only, 0.000000 mass error)
+  ✅ Phase 6: Tier 2 covariates + multi-covariate refit (0.000000 mass error)
+  ✅ Phase 7: Biophysical temporal disaggregation → 747,903,370 weekly rows
+  ✅ Phase 8: Feature engineering → 61.6M records, 52 features, zero leakage
+  ✅ Phase 9: Forecasting models → LightGBM/XGBoost, R² 0.87–0.95
+  ✅ Phase 10: Hotspot fusion → Gi* on predicted risk, Dengue IoU=0.8145
         |
-OPEN DECISION POINT (not yet resolved)
-  Tier 2 covariates (NDVI/land cover/water) vs temporal disaggregation +
-  feature engineering. Claude's last lean: temporal/features first, but
-  explicitly left to the user.
+NEXT PHASE (in progress)
+  Phase 11: Ablation Studies & Ground-Truth Validation
+    - Lead-time analysis (how many weeks ahead we cross significance)
+    - Ablation suite: spatial constraint / biophysical features / Tier 2
+    - Bhopal ward-level validation (86 municipal wards)
         |
-NEXT PHASE (whichever is chosen)
+Phase 12: SHAP Explainability & Dual-Disease Ecology
+  Per-cell SHAP for feature importance; correlate dengue/malaria risk
         |
-FOLLOWING PHASE
-  Feature engineering: lags, rolling stats, growth rates, H3 neighbor
-  features (leakage-safe), seasonality encoding
-        |
-FINAL IMPLEMENTATION PHASE
-  Forecasting models -> Hotspot detection (Gi* on predicted risk) ->
-  Dual-disease comparison -> Explainability (SHAP) ->
-  Uncertainty/calibration -> Early warning engine -> Dashboard
-        |
-VALIDATION PHASE
-  Future-hotspot validation -> Research evaluation layer (baselines,
-  ablations, spatial/temporal holdout, hotspot method comparison)
+Phase 13: Early Warning Engine & Interactive Dashboard
+  Automated weekly inference pipeline → Folium/Plotly interactive map
         |
 RESEARCH PAPER / FINAL PRESENTATION
-  UNKNOWN/NOT CONFIRMED whether formally required
+  Confirm w/ faculty; novelty = combination + disaggregation-validation methodology
 ```
 
 ---
 
 ## PART 26 — CURRENT PHASE DEFINITION
 
-- **CURRENT PHASE:** Phase 5 — Spatial Disaggregation (real data)
-- **PHASE OBJECTIVE:** Disaggregate real state/district-level case totals to H3-hexagon resolution using real covariates, exactly mass-preserving, validated.
-- **COMPLETED WITHIN PHASE:** Model design/implementation; major data-quality bug found+fixed; full real-data run completed and validated; a subsequent local-environment bug found+fixed.
-- **CURRENT TASK:** Confirming the BOM-fixed script runs on the user's machine, then committing to GitHub.
-- **CURRENT BLOCKER:** None technical — awaiting user confirmation/commit and Phase 6 decision.
-- **PHASE EXIT CRITERIA:** Phase 5 artifacts committed; Phase 6 direction chosen.
-- **NEXT PHASE:** Phase 6 — Tier 2 Covariates OR Temporal Disaggregation (not yet decided).
+- **CURRENT PHASE:** Phase 11 — Ablation Studies & Ground-Truth Validation
+- **PHASE OBJECTIVE:** Formally quantify the contribution of each system component (spatial constraint, biophysical features, Tier 2 covariates); measure lead-time performance; validate hex predictions against Bhopal ward-level ground truth.
+- **COMPLETED WITHIN THIS HANDOVER:** Phases 1–10 complete (see PART 12 for full summary). All documentation updated 2026-09-29.
+- **CURRENT TASK:** Begin Phase 11 tasks per Remaining_Phases.md §2.
+- **CURRENT BLOCKER:** None.
+- **PHASE EXIT CRITERIA:** Ablation suite complete; lead-time curve plotted; Bhopal ward-level validation run.
+- **NEXT PHASE:** Phase 12 — SHAP Explainability & Dual-Disease Ecology.
 
 ---
 
@@ -782,19 +798,22 @@ RESEARCH PAPER / FINAL PRESENTATION
 1. **H3 resolution = 7.** Deliberate, user-driven, tied to the core novelty claim. Do not revert to coarser resolution without explicit user request.
 2. **Always join geographic data on (state name, district name), never `dt_code` alone.**
 3. **`malaria_district_2000_2024.csv` is the STATE-MISLABELING-CORRECTED version.** Never reintroduce an older uncorrected copy.
-4. **The mass-preserving rescale is exact by construction, numerically verified.** Do not simplify this away.
-5. **`dengue_hex_annual.csv`/`malaria_hex_annual.csv` must NOT be committed to GitHub or routinely passed through chat.**
+4. **The mass-preserving rescale is exact by construction, numerically verified.** Do not simplify this away. Applies at both spatial (Phases 5–6) and temporal (Phase 7) stages.
+5. **`dengue_hex_annual.csv`/`malaria_hex_annual.csv` and all large hex-weekly Parquets must NOT be committed to GitHub.** They are regenerable.
 6. **Population is used BOTH as offset AND covariate** — deliberate, not an oversight.
-7. **Weather is currently NOT part of the spatial disaggregation model** — deliberate, not a gap to hastily fix.
-8. **All scripts use `Path(__file__).resolve().parent`-relative path resolution.** Preserve this pattern.
-9. **No synthetic data in the final/real pipeline.** `disaggregation_prototype.py` is proof-of-concept only.
-10. **No individual-technique novelty claims** (LightGBM/XGBoost/SHAP/Gi*/climate features) — novelty is the combination + disaggregation-validation methodology.
+7. **All scripts use `Path(__file__).resolve().parent`-relative path resolution.** Preserve this pattern.
+8. **No synthetic data in the final/real pipeline.** `disaggregation_prototype.py` is proof-of-concept only.
+9. **No individual-technique novelty claims** (LightGBM/XGBoost/SHAP/Gi*/climate features) — novelty is the combination + disaggregation-validation methodology.
+10. **Phase 7 float64 accumulation is mandatory.** Year-by-year accumulation must stay in float64; cast to float32 only when saving. Float32 accumulation caused mass-deviation in year 2020 — confirmed fixed.
+11. **`is_hotspot_act_lead_k` must be read directly from the Parquet file.** Never re-threshold raw actual cases against a percentile — the column was computed by Gi* on actual outcomes and stored in the hotspot Parquet. Re-computing it gives different values.
+12. **W* must include self-loops.** Use `h3.grid_disk(h, 1)` (which includes the center hex), NOT `h3.grid_ring(h, 1)`. Self-loops are required for Gi* (not Gi).
+13. **Thread caps must remain: OMP_NUM_THREADS=4, MKL_NUM_THREADS=4, OPENBLAS_NUM_THREADS=4.** Removing them causes CPU lockup on the 12-core machine during batch inference.
+14. **GPU (GTX 1650 / CuPy / CUDA 12.7) is skipped.** `nvJitLink` DLL missing; CuPy non-functional. All inference runs on CPU. Keep in mind for future phases but do not attempt to activate.
 
 **OPEN DECISIONS (safe to discuss/change):**
-- Tier 2 covariates vs temporal disaggregation as next phase
-- Exact temporal disaggregation method/design (not designed at all yet)
-- Whether a formal research paper is required
-- Exact forecast holdout scheme
+- Whether a formal research paper is required (confirm with faculty)
+- Phase 11 ablation scope and Bhopal ward validation approach
+- Exact dashboard technology for Phase 13 (Folium vs Plotly Dash vs Streamlit)
 
 ---
 

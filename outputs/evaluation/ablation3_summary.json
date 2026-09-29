@@ -1,0 +1,68 @@
+{
+  "dengue/A_With_Weather": {
+    "mean_r2": 0.3235,
+    "mean_rmse": 0.3419,
+    "mean_iou": 0.821
+  },
+  "dengue/B_No_Weather": {
+    "mean_r2": 0.3106,
+    "mean_rmse": 0.3452,
+    "mean_iou": 0.7962
+  },
+  "malaria/A_With_Weather": {
+    "mean_r2": 0.9551,
+    "mean_rmse": 0.0743,
+    "mean_iou": 0.3092
+  },
+  "malaria/B_No_Weather": {
+    "mean_r2": 0.9386,
+    "mean_rmse": 0.0862,
+    "mean_iou": 0.301
+  },
+  "weather_columns": {
+    "dengue": [
+      "tmax_lag_1",
+      "tmax_lag_2",
+      "tmax_lag_4",
+      "tmin_lag_1",
+      "tmin_lag_2",
+      "tmin_lag_4",
+      "tmean_lag_1",
+      "tmean_lag_2",
+      "tmean_lag_4",
+      "dtr_lag_1",
+      "dtr_lag_2",
+      "rain_lag_1",
+      "rain_lag_2",
+      "rain_lag_4",
+      "rain_lag_6",
+      "rain_roll_sum_2w",
+      "rain_roll_sum_4w",
+      "suitability_lag_1",
+      "suitability_lag_2",
+      "suitability_lag_4"
+    ],
+    "malaria": [
+      "tmax_lag_1",
+      "tmax_lag_2",
+      "tmax_lag_4",
+      "tmin_lag_1",
+      "tmin_lag_2",
+      "tmin_lag_4",
+      "tmean_lag_1",
+      "tmean_lag_2",
+      "tmean_lag_4",
+      "dtr_lag_1",
+      "dtr_lag_2",
+      "rain_lag_1",
+      "rain_lag_2",
+      "rain_lag_4",
+      "rain_lag_6",
+      "rain_roll_sum_2w",
+      "rain_roll_sum_4w",
+      "suitability_lag_1",
+      "suitability_lag_2",
+      "suitability_lag_4"
+    ]
+  }
+}

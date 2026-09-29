@@ -1,0 +1,51 @@
+============================================================
+PHASE 11 EVALUATION REPORT
+VectorHotspot - Rigorous Evaluation & Ablation Studies
+============================================================
+
+TASK 1: Future Hotspot Verification
+(Completed in Phase 10 - metrics from hotspot_fusion_evaluation_metrics.csv)
+disease horizon  spatial_iou  precision   recall  f1_score  predicted_hotspots  actual_hotspots
+ dengue     t+1     0.814497   0.889921 0.905751  0.897766               27235            26759
+ dengue     t+2     0.771605   0.861744 0.880621  0.871080               27384            26797
+ dengue     t+3     0.727701   0.833224 0.851765  0.842392               27426            26829
+ dengue     t+4     0.690711   0.814076 0.820077  0.817065               27054            26856
+malaria     t+1     0.778746   0.866491 0.884928  0.875612               20111            19692
+malaria     t+2     0.636914   0.785100 0.771398  0.778189               19423            19768
+malaria     t+3     0.508022   0.734491 0.622304  0.673759               16813            19844
+malaria     t+4     0.448651   0.680320 0.568503  0.619406               16651            19926
+
+TASK 2: National Spatial Holdout Validation (108 districts, 28 states)
+  [Dengue]
+    Mean Spearman rho             : 0.8398
+    % weeks significant (p<0.05)  : 100.0%
+    Hotspot detection rate        : 0.1578
+  [Malaria]
+    Mean Spearman rho             : 0.348
+    % weeks significant (p<0.05)  : 94.2%
+    Hotspot detection rate        : 0.0824
+
+TASK 3: Ablation 1 - Spatial Disaggregation Methodology
+disease                               variant  mean_kl_divergence    mean_mape  mean_mass_error  n_groups
+malaria A_Full_Poisson_Tier1+Tier2 (baseline)            0.000000 0.000000e+00              0.0       NaN
+ dengue A_Full_Poisson_Tier1+Tier2 (baseline)            0.000000 0.000000e+00              0.0       NaN
+ dengue                       C_Naive_Uniform            2.560605 2.649905e+07              0.0     104.0
+ dengue                    D_Population_Share            0.650117 1.199210e+01              0.0     104.0
+malaria                       C_Naive_Uniform            0.798081 1.836731e+08              0.0     887.0
+malaria                    D_Population_Share            1.253685 8.272046e+06              0.0     887.0
+
+TASK 4: Ablation 2 - Feature Engineering (Spatial Neighbors)
+disease                  variant     r2   rmse    iou
+ dengue     A_H3_kring_neighbors 0.3235 0.3419 0.8210
+ dengue   B_No_spatial_neighbors 0.3052 0.3465 0.8207
+ dengue C_District_mean_neighbor 0.3504 0.3351 0.8190
+malaria     A_H3_kring_neighbors 0.9551 0.0743 0.3092
+malaria   B_No_spatial_neighbors 0.9538 0.0753 0.3131
+malaria C_District_mean_neighbor 0.9567 0.0728 0.3104
+
+TASK 5: Ablation 3 - Environmental Signals (Weather)
+disease        variant     r2   rmse    iou
+ dengue A_With_Weather 0.3235 0.3419 0.8210
+ dengue   B_No_Weather 0.3106 0.3452 0.7962
+malaria A_With_Weather 0.9551 0.0743 0.3092
+malaria   B_No_Weather 0.9386 0.0862 0.3010

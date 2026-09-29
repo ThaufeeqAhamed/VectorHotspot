@@ -1,0 +1,18 @@
+{
+  "dengue": {
+    "n_holdout_districts": 108,
+    "n_holdout_states": 28,
+    "n_weeks_evaluated": 104,
+    "mean_spearman_rho": 0.8398,
+    "pct_weeks_significant": 100.0,
+    "hotspot_detection_rate": 0.1578
+  },
+  "malaria": {
+    "n_holdout_districts": 108,
+    "n_holdout_states": 28,
+    "n_weeks_evaluated": 104,
+    "mean_spearman_rho": 0.348,
+    "pct_weeks_significant": 94.2,
+    "hotspot_detection_rate": 0.0824
+  }
+}

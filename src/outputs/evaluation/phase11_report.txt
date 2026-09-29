@@ -1,0 +1,28 @@
+============================================================
+PHASE 11 EVALUATION REPORT
+VectorHotspot — Rigorous Evaluation & Ablation Studies
+============================================================
+
+TASK 1: Future Hotspot Verification
+(Completed in Phase 10 — metrics from hotspot_fusion_evaluation_metrics.csv)
+  [could not load: [Errno 2] No such file or directory: 'W:\\MiniProject5\\VectorHotspot\\src\\outputs\\tables\\hotspot_fusion_evaluation_metrics.csv']
+
+TASK 2: National Spatial Holdout Validation (108 districts, 28 states)
+  [not yet generated: [Errno 2] No such file or directory: 'W:\\MiniProject5\\VectorHotspot\\src\\outputs\\evaluation\\spatial_holdout_summary.json']
+
+TASK 3: Ablation 1 — Spatial Disaggregation Methodology
+  [not yet generated: [Errno 2] No such file or directory: 'W:\\MiniProject5\\VectorHotspot\\src\\outputs\\evaluation\\ablation1_summary.csv']
+
+TASK 4: Ablation 2 — Feature Engineering (Spatial Neighbors)
+  [not yet generated: [Errno 2] No such file or directory: 'W:\\MiniProject5\\VectorHotspot\\src\\outputs\\evaluation\\ablation2_feature_engineering.csv']
+
+TASK 5: Ablation 3 — Environmental Signals (Weather)
+  [not yet generated: [Errno 2] No such file or directory: 'W:\\MiniProject5\\VectorHotspot\\src\\outputs\\evaluation\\ablation3_weather_signals.csv']
+
+
+EXECUTION LOG
+----------------------------------------
+  [SUCCESS] Task 2: National Spatial Holdout Validation (8.3s)
+  [FAILED] Task 3: Ablation 1 — Spatial Method (6.8s) — 'Column not found: cases'
+  [FAILED] Task 4: Ablation 2 — Feature Engineering (2585.0s) — Unable to allocate 5.14 GiB for an array with shape (41, 33633102) and data type float32
+  [FAILED] Task 5: Ablation 3 — Weather Signals (3553.3s) — 'charmap' codec can't encode character '\u2212' in position 42: character maps to <undefined>

@@ -1,0 +1,57 @@
+state,n_district_weeks,n_districts,spearman_rho,p_value,significant,disease
+Jammu and Kashmir,312,3,0.8999,0.0,True,dengue
+Maharashtra,312,3,0.8779,0.0,True,dengue
+Haryana,312,3,0.8428,0.0,True,dengue
+Tamil Nadu,416,4,0.8255,0.0,True,dengue
+Bihar,1040,10,0.8181,0.0,True,dengue
+Karnataka,416,4,0.816,0.0,True,dengue
+Sikkim,104,1,0.7949,0.0,True,dengue
+Punjab,208,2,0.7899,0.0,True,dengue
+Manipur,416,4,0.7173,0.0,True,dengue
+West Bengal,312,3,0.7085,0.0,True,dengue
+Andaman and Nicobar Islands,104,1,0.7059,0.0,True,dengue
+Uttar Pradesh,1144,11,0.6825,0.0,True,dengue
+Jharkhand,312,3,0.6677,0.0,True,dengue
+Nagaland,312,3,0.6334,0.0,True,dengue
+Assam,624,6,0.5838,0.0,True,dengue
+Gujarat,416,4,0.4884,0.0,True,dengue
+Telangana,520,5,0.4183,0.0,True,dengue
+Madhya Pradesh,1040,10,0.3912,0.0,True,dengue
+Rajasthan,520,5,0.2199,0.0,True,dengue
+Himachal Pradesh,520,5,0.1817,3.1e-05,True,dengue
+Kerala,208,2,0.1502,0.030389,True,dengue
+Odisha,104,1,0.1379,0.162728,False,dengue
+Mizoram,416,4,0.1273,0.009319,True,dengue
+Meghalaya,104,1,0.0279,0.778286,False,dengue
+Chhattisgarh,208,2,-0.0121,0.861899,False,dengue
+Uttarakhand,208,2,-0.0262,0.707288,False,dengue
+Andhra Pradesh,104,1,-0.0355,0.720469,False,dengue
+Arunachal Pradesh,520,5,-0.1121,0.010521,True,dengue
+Maharashtra,312,3,0.8618,0.0,True,malaria
+Mizoram,416,4,0.7889,0.0,True,malaria
+Uttar Pradesh,1144,11,0.5692,0.0,True,malaria
+Kerala,208,2,0.5077,0.0,True,malaria
+West Bengal,312,3,0.4602,0.0,True,malaria
+Haryana,312,3,0.3584,0.0,True,malaria
+Bihar,1040,10,0.3013,0.0,True,malaria
+Punjab,208,2,0.2983,1.2e-05,True,malaria
+Assam,624,6,0.2513,0.0,True,malaria
+Madhya Pradesh,1040,10,0.225,0.0,True,malaria
+Manipur,416,4,0.2039,2.8e-05,True,malaria
+Jharkhand,312,3,0.1333,0.018466,True,malaria
+Rajasthan,520,5,0.1193,0.006446,True,malaria
+Nagaland,312,3,0.1021,0.071747,False,malaria
+Arunachal Pradesh,520,5,0.0596,0.175102,False,malaria
+Himachal Pradesh,520,5,0.056,0.202707,False,malaria
+Tamil Nadu,416,4,-0.1892,0.000103,True,malaria
+Andaman and Nicobar Islands,104,1,,,False,malaria
+Andhra Pradesh,104,1,,,False,malaria
+Chhattisgarh,208,2,,,False,malaria
+Gujarat,416,4,,,False,malaria
+Jammu and Kashmir,312,3,,,False,malaria
+Karnataka,416,4,,,False,malaria
+Meghalaya,104,1,,,False,malaria
+Odisha,104,1,,,False,malaria
+Sikkim,104,1,,,False,malaria
+Telangana,520,5,,,False,malaria
+Uttarakhand,208,2,,,False,malaria

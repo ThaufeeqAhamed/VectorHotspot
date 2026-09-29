@@ -1,5 +1,17 @@
 # VectorHotspot Phase 5 Completion Guide
 
+> **HISTORICAL DOCUMENT — 2026-09-29**
+> Phase 5 is **COMPLETE** (validated 2026-09-24, 0.000000 mass error).
+> Phases 6–10 have since been completed. This guide is retained for reference only.
+> - Phase 6 (Tier 2 Covariates + refit): ✅ DONE
+> - Phase 7 (Biophysical temporal disaggregation → 747,903,370 weekly rows): ✅ DONE
+> - Phase 8 (Feature engineering → 61.6M records, 52 features): ✅ DONE
+> - Phase 9 (LightGBM/XGBoost forecasting, R² 0.87–0.95): ✅ DONE
+> - Phase 10 (Getis-Ord Gi* hotspot fusion, Dengue IoU=0.8145): ✅ DONE
+> See `README.md` and `Remaining_Phases.md` for current project state.
+
+---
+
 **Date:** 2026-09-24  
 **Current Status:** Repository structure complete, awaiting WorldPop data download
 
@@ -202,15 +214,17 @@ If you see `KeyError: 'h3_index'` or similar:
 
 ## What's Next (Phase 6)
 
+> **HISTORICAL NOTE:** Both options below were completed. Phase 6 added Tier 2 covariates first, then Phase 7 implemented biophysical temporal disaggregation. Phases 8–10 followed. See `Remaining_Phases.md` for Phase 11 onward.
+
 After completing Phase 5, you need to decide the next direction:
 
-### Option A: Tier 2 Covariates
+### Option A: Tier 2 Covariates ✅ DONE (Phase 6)
 Pull additional environmental covariates to strengthen the disaggregation model:
 - NDVI (vegetation index) from MODIS
 - Land cover from ESA WorldCover
 - Water bodies from JRC Global Surface Water
 
-### Option B: Temporal Disaggregation
+### Option B: Temporal Disaggregation ✅ DONE (Phase 7)
 Design a method to redistribute annual case totals across weeks using weekly weather data, enabling the weekly forecasting the original blueprint envisions.
 
 **Recommendation from handover:** Start with temporal disaggregation/feature engineering (Option B), as it's on the critical path to forecasting. Tier 2 covariates can be added later to improve the spatial model.
@@ -259,15 +273,15 @@ git push origin main
 
 ## Summary Checklist
 
-- [ ] Python 3.8+ installed with required packages
-- [ ] Downloaded 5 WorldPop raster files to `data/raw/population/`
-- [ ] Ran `generate_hex_population.py` successfully
-- [ ] Generated `hex_population_2000_2020.csv` exists (~40-50 MB)
-- [ ] Ran `wire_disaggregation_model.py` successfully
-- [ ] Generated `dengue_hex_annual.csv` and `malaria_hex_annual.csv` exist
-- [ ] Reviewed `disaggregation_fit_report.txt` for validation results
-- [ ] Committed Phase 5 scripts to GitHub
-- [ ] Decided on Phase 6 direction (Tier 2 covariates vs temporal disaggregation)
+- [x] Python 3.8+ installed with required packages
+- [x] Downloaded 5 WorldPop raster files to `data/raw/population/`
+- [x] Ran `generate_hex_population.py` successfully
+- [x] Generated `hex_population_2000_2020.csv` exists (~40-50 MB)
+- [x] Ran `wire_disaggregation_model.py` successfully
+- [x] Generated `dengue_hex_annual.csv` and `malaria_hex_annual.csv` exist
+- [x] Reviewed `disaggregation_fit_report.txt` for validation results
+- [x] Committed Phase 5 scripts to GitHub
+- [x] Decided on Phase 6 direction (Tier 2 covariates vs temporal disaggregation)
 
 ---
 
@@ -277,4 +291,4 @@ git push origin main
 
 ---
 
-*Last Updated: 2026-09-24*
+*Last Updated: 2026-09-29 (Phase 5 complete; Phases 6–10 also complete as of 2026-09-29)*

@@ -1,0 +1,7 @@
+disease,variant,mean_kl_divergence,mean_mape,mean_mass_error,n_groups
+malaria,A_Full_Poisson_Tier1+Tier2 (baseline),0.0,0.0,0.0,
+dengue,A_Full_Poisson_Tier1+Tier2 (baseline),0.0,0.0,0.0,
+dengue,C_Naive_Uniform,2.560605,26499053.094766,0.0,104.0
+dengue,D_Population_Share,0.650117,11.992096,0.0,104.0
+malaria,C_Naive_Uniform,0.798081,183673127.7822,0.0,887.0
+malaria,D_Population_Share,1.253685,8272045.923867,0.0,887.0
