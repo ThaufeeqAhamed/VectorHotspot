@@ -26,6 +26,12 @@ data/processed/malaria_hex_weekly.parquet/
 data/processed/features_*.parquet
 *.parquet
 *.npz
+
+# Large evaluation outputs (regenerable via evaluation scripts)
+outputs/explainability/prediction_intervals_*.csv
+outputs/explainability/shap_values_*.csv
+outputs/evaluation/spatial_holdout_validation.csv
+outputs/evaluation/ablation1_spatial_methodology.csv
 models/
 *.joblib
 *.pkl
