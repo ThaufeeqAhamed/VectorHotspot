@@ -21,6 +21,7 @@ class HotspotCell(BaseModel):
     district: str
     state: str
     risk_score: float
+    risk_percent: Optional[float] = 99.9
 
 class HotspotsResponse(BaseModel):
     disease: str
