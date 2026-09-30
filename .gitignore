@@ -5,4 +5,21 @@ imd_raw_data/
 __pycache__/
 .ipynb_checkpoints/
 *.pyc
-brain.md
+brain.md# Generated / processed ML data
+data/processed/
+
+# Generated outputs
+outputs/
+
+# ML models / checkpoints
+models/
+checkpoints/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Environment
+.venv/
+venv/
+.env
