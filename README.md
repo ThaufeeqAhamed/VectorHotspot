@@ -1,4 +1,4 @@
-# 🦠 VectorHotspot
+# VectorHotspot
 **Epidemiological Geospatial Early-Warning Intelligence System**
 
 VectorHotspot is an enterprise-grade machine learning pipeline and interactive dashboard designed to forecast vector-borne disease transmission (specifically **Dengue** and **Malaria**) across India. It operates at a hyper-local spatial scale using Uber's H3 hexagonal grid system, predicting transmission risks 1 to 4 weeks into the future.
