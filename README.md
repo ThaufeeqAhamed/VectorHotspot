@@ -1,4 +1,4 @@
-# 🦠 VectorHotspot — Complete Deep-Dive Analysis
+# VectorHotspot — Complete Deep-Dive Analysis
 
 > **Every phase, every file, every model, every formula — explained from start to finish.**
 
