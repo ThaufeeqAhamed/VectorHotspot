@@ -1,0 +1,12 @@
+h3
+reverse_geocoder
+numpy
+joblib
+lightgbm
+xgboost
+shap
+fastapi
+pydantic
+pandas
+uvicorn
+pyarrow
