@@ -1,6 +1,6 @@
 # VectorHotspot: Comprehensive Presentation Script & System Architecture Guide
 
-> **File Name**: `hitler.md`  
+> **File Name**: `h.md`  
 > **Project Title**: **VectorHotspot: AI-Driven Spatio-Temporal Hotspot Prediction & Early Warning System for Dengue and Malaria in India**  
 > **Target Audience**: Project Guide / Academic Evaluation Panel  
 > **Presentation Modality**: Live Frontend Demonstration from Scratch + End-to-End Technical Defense  
