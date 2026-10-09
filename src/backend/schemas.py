@@ -42,6 +42,8 @@ class ForecastResponse(BaseModel):
     district: Optional[str] = None
     horizon: int
     history: List[ForecastPoint]
+    risk_score: Optional[float] = None
+    risk_percent: Optional[float] = None
 
 class GeoJSONFeature(BaseModel):
     type: str = "Feature"

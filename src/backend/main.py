@@ -90,38 +90,70 @@ def get_risk_geojson(
     if disease not in data_manager.api_diseases:
         raise HTTPException(status_code=400, detail="Invalid disease")
     if not data_manager.geojson_ready:
-        return Response(status_code=503, headers={"Retry-After": "10"},
-                        content='{"detail":"GeoJSON cache is building, retry in ~10s"}',
+        return Response(status_code=503, headers={"Retry-After": "5"},
+                        content='{"detail":"GeoJSON cache is building, retry in ~5s"}',
                         media_type='application/json')
     entry = data_manager.get_risk_geojson(disease, horizon)
-    content = f'{{"geojson":{entry["geojson"]},"maxRisk":{entry["maxRisk"]}}}'
+    is_agg = str(entry.get("is_aggregate", True)).lower()
+    content = f'{{"geojson":{entry["geojson"]},"maxRisk":{entry["maxRisk"]},"is_aggregate":{is_agg}}}'
     return Response(
         content=content,
         media_type='application/json'
     )
 
 @app.get("/api/geojson/all")
+@app.get("/api/geojson/overview/all")
 def get_risk_geojson_all(
     disease: str = Query(..., description="Disease name")
 ):
     """
-    Returns pre-built GeoJSON for ALL 4 horizons in one request.
-    Returns 503 with Retry-After if background bake is still in progress.
+    Returns pre-built National Overview GeoJSON for ALL 4 horizons in one request.
+    Covers 100% of India with pre-aggregated H3 Res-4 hexagons.
     """
     if disease not in data_manager.api_diseases:
         raise HTTPException(status_code=400, detail="Invalid disease")
     if not data_manager.geojson_ready:
-        return Response(status_code=503, headers={"Retry-After": "10"},
-                        content='{"detail":"GeoJSON cache is building, please retry in ~10s"}',
+        return Response(status_code=503, headers={"Retry-After": "5"},
+                        content='{"detail":"GeoJSON cache is building, please retry in ~5s"}',
                         media_type='application/json')
     horizons_parts = []
     for h in data_manager.horizons:
         entry = data_manager.get_risk_geojson(disease, h)
-        horizons_parts.append(f'"{h}":{{"geojson":{entry["geojson"]},"maxRisk":{entry["maxRisk"]}}}')
-    content = f'{{"disease":"{disease}","horizons":{{{",".join(horizons_parts)}}}}}'
+        is_agg = str(entry.get("is_aggregate", True)).lower()
+        horizons_parts.append(f'"{h}":{{"geojson":{entry["geojson"]},"maxRisk":{entry["maxRisk"]},"is_aggregate":{is_agg}}}')
+    content = f'{{"disease":"{disease}","is_aggregate":true,"horizons":{{{",".join(horizons_parts)}}}}}'
     return Response(
         content=content,
         media_type='application/json'
+    )
+
+@app.get("/api/map/viewport")
+def get_map_viewport(
+    min_lon: float = Query(..., description="West bounding coordinate"),
+    min_lat: float = Query(..., description="South bounding coordinate"),
+    max_lon: float = Query(..., description="East bounding coordinate"),
+    max_lat: float = Query(..., description="North bounding coordinate"),
+    disease: str = Query("dengue", description="Disease name (e.g., dengue, malaria)"),
+    horizon: int = Query(1, ge=1, le=4, description="Forecast horizon (1-4 weeks)"),
+    limit: int = Query(10000, ge=100, le=25000, description="Max cells to return"),
+    state: Optional[str] = Query(None, description="Filter by state name")
+):
+    """
+    Returns exact full-resolution H3 Res-7 cells intersecting the current viewport.
+    Backed by persistent SQLite R*Tree index (sub-25ms latency).
+    """
+    if disease not in data_manager.api_diseases:
+        raise HTTPException(status_code=400, detail="Invalid disease")
+    result = data_manager.get_viewport_cells(
+        min_lon=min_lon, min_lat=min_lat,
+        max_lon=max_lon, max_lat=max_lat,
+        disease=disease, horizon=horizon,
+        limit=limit, state=state
+    )
+    return Response(
+        content=json.dumps(result),
+        media_type='application/json',
+        headers={"Cache-Control": "public, max-age=1800"}
     )
 
 @app.get("/api/risk/all")
@@ -189,11 +221,14 @@ def get_cell_forecast(
         raise HTTPException(status_code=400, detail="Invalid disease")
         
     history = data_manager.get_forecast_history(disease, horizon, h3_index=h3_id)
+    risk_info = data_manager._get_single_cell_risk(h3_id, disease, horizon)
     return {
         "disease": disease,
         "horizon": horizon,
         "h3_index": h3_id,
-        "history": history
+        "history": history,
+        "risk_score": risk_info.get("risk_score"),
+        "risk_percent": risk_info.get("risk_percent")
     }
 
 @app.get("/api/cell/{h3_id}/shap")
@@ -223,3 +258,48 @@ def get_cell_shap_endpoint(
         "explanation": f"{'Cell-specific' if source == 'local' else 'Global'} SHAP importance",
         "top_features": shap_records
     }
+
+@app.get("/api/search")
+def search_places_and_cells(
+    q: str = Query(..., min_length=1, description="Place name, district, state or H3 cell"),
+    disease: str = Query("dengue", description="Disease name"),
+    horizon: int = Query(1, ge=1, le=4, description="Forecast horizon"),
+    limit: int = Query(10, ge=1, le=25)
+):
+    """
+    Search places (districts, states) and H3 cells.
+    Returns matched districts with their peak risk cells, states, and individual H3 cells.
+    """
+    if disease not in data_manager.api_diseases:
+        raise HTTPException(status_code=400, detail="Invalid disease")
+    return data_manager.search(q, disease=disease, horizon=horizon, limit=limit)
+
+@app.get("/api/places/popular")
+def get_popular_places(
+    disease: str = Query("dengue", description="Disease name"),
+    horizon: int = Query(1, ge=1, le=4, description="Forecast horizon")
+):
+    """Returns top popular metropolitan hubs and their current peak risk hotspots."""
+    if disease not in data_manager.api_diseases:
+        raise HTTPException(status_code=400, detail="Invalid disease")
+    popular_names = [
+        "Mumbai", "Bengaluru Urban", "Delhi", "Belagavi", 
+        "Pune", "Kolkata", "Chennai", "Hyderabad", "Ahmedabad", "Ernakulam"
+    ]
+    results = []
+    for name in popular_names:
+        matches = [d for d in data_manager.districts_list if d['district'].lower() == name.lower()]
+        if matches:
+            d = matches[0]
+            top_cell = data_manager._get_district_top_cell(d['district'], disease, horizon)
+            results.append({
+                "district": d['district'],
+                "state": d['state'],
+                "center_lat": d['center_lat'],
+                "center_lon": d['center_lon'],
+                "bounds": [d['min_lon'], d['min_lat'], d['max_lon'], d['max_lat']],
+                "cell_count": d['cell_count'],
+                "top_cell": top_cell
+            })
+    return {"places": results}
+

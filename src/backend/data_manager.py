@@ -3,6 +3,7 @@ from pathlib import Path
 import h3 as h3lib
 import json
 import gzip
+import sqlite3
 
 class DataManager:
     def __init__(self):
@@ -17,7 +18,18 @@ class DataManager:
         # Per-cell (local) SHAP: { (disease, horizon) -> pd.DataFrame indexed by h3_index }
         self.shap_local = {}
         self.geojson_cache = {}  # { disease: { horizon: { geojson_str, maxRisk } } }
+        self.national_overview_cache = {}  # { disease: { horizon: { geojson_str, maxRisk, cellCount } } }
         self.geojson_ready = False
+
+        # SQLite spatial database with R*Tree index
+        self.db_path = self.processed_dir / "vectorhotspot_spatial.db"
+        self._db_conn = None
+        self.h3_poly_cache = {}  # in-memory cache for polygon coordinates
+        self.max_risks = {
+            ("dengue", 1): 1.1, ("dengue", 2): 1.1, ("dengue", 3): 1.0, ("dengue", 4): 1.2,
+            ("malaria", 1): 16.0, ("malaria", 2): 23.0, ("malaria", 3): 20.0, ("malaria", 4): 17.0,
+            ("syndemic", 1): 7.7, ("syndemic", 2): 7.2, ("syndemic", 3): 6.9, ("syndemic", 4): 7.8,
+        }
 
         # Disk cache directory — survives --reload restarts
         self.disk_cache_dir = self.project_root / "outputs" / "geojson_cache"
@@ -29,27 +41,65 @@ class DataManager:
         self.api_diseases = ["dengue", "malaria", "syndemic"]
         self.horizons = [1, 2, 3, 4]
         
+        # Places & cell search index
+        self.districts_list = []
+        self.states_list = []
+        self.h3_cell_map = {}
+        self.top_cell_cache = {}  # (disease, horizon) -> { district: { h3_index, risk_percent, risk_score } }
+
+    def _get_db(self):
+        """Returns thread-safe connection to SQLite spatial database."""
+        if self._db_conn is None:
+            if not self.db_path.exists():
+                from .build_spatial_artifacts import main as build_artifacts
+                build_artifacts()
+            self._db_conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+            self._db_conn.execute("PRAGMA query_only = ON")
+        return self._db_conn
+        
     def load_data(self):
-        """Load predictions (fast), then load GeoJSON from disk cache or bake+save.
+        """Load predictions, then load National Overview and Spatial DB.
         
         Disk cache lives at outputs/geojson_cache/ and is keyed to latest_year+latest_week.
-        First run: bakes ~2 min, saves to disk.
-        Every subsequent run (including --reload): loads from disk in ~2s.
+        First run: loads/bakes national overview and spatial db.
+        Every subsequent run: loads from disk in ~0.2s.
         """
         self._load_core_data()
         version = f"{self.latest_year}_W{self.latest_week}"
         
-        if self._disk_cache_valid(version):
-            print(f"[GeoJSON] Loading from disk cache (version {version})...")
+        # Ensure SQLite spatial database exists
+        if not self.db_path.exists():
+            print("[SpatialDB] Database not found. Building spatial artifacts...")
+            from .build_spatial_artifacts import main as build_artifacts
+            build_artifacts()
+
+        # Load national overview cache (covers 100% of India)
+        if self._national_overview_valid(version):
+            print(f"[GeoJSON] Loading National Overview from disk cache (version {version})...")
+            self._load_national_overview_from_disk(version)
+            self.geojson_ready = True
+            print("[GeoJSON] National Overview loaded. Complete India coverage is live immediately.")
+        elif self._disk_cache_valid(version):
+            print(f"[GeoJSON] Loading legacy disk cache (version {version})...")
             self._load_geojson_from_disk(version)
             self.geojson_ready = True
-            print("[GeoJSON] Disk cache loaded. Map endpoints are live immediately.")
+            print("[GeoJSON] Legacy cache loaded.")
         else:
-            print(f"[GeoJSON] No valid disk cache for {version}. Baking now (one-time, ~2 min)...")
-            self._build_geojson_cache()
-            self._save_geojson_to_disk(version)
+            print(f"[GeoJSON] Building spatial artifacts for {version}...")
+            from .build_spatial_artifacts import main as build_artifacts
+            build_artifacts()
+            self._load_national_overview_from_disk(version)
             self.geojson_ready = True
-            print("[GeoJSON] Bake complete and saved to disk. Future starts will be instant.")
+            print("[GeoJSON] Spatial artifacts ready.")
+
+    def _national_overview_valid(self, version: str) -> bool:
+        """Returns True if all 12 national overview cache files exist for this version."""
+        for disease in self.api_diseases:
+            for horizon in self.horizons:
+                f = self.disk_cache_dir / f"national_overview_{disease}_h{horizon}_{version}.json.gz"
+                if not f.exists():
+                    return False
+        return True
 
     def _disk_cache_valid(self, version: str) -> bool:
         """Returns True if all 12 cache files exist for this version."""
@@ -72,11 +122,32 @@ class DataManager:
                 fpath = self.disk_cache_dir / f"{disease}_h{horizon}_{version}.json.gz"
                 with gzip.open(fpath, 'wt', encoding='utf-8') as f:
                     json.dump(payload, f)
-        # Clean up stale cache files from previous versions
-        for fpath in self.disk_cache_dir.glob("*.json.gz"):
-            if version not in fpath.name:
-                fpath.unlink(missing_ok=True)
         print("[GeoJSON] Disk cache saved.")
+
+    def _load_national_overview_from_disk(self, version: str):
+        """Load pre-baked National Overview GeoJSON from gzipped disk files into memory."""
+        for disease in self.api_diseases:
+            self.national_overview_cache[disease] = {}
+            self.geojson_cache[disease] = {}
+            for horizon in self.horizons:
+                fpath = self.disk_cache_dir / f"national_overview_{disease}_h{horizon}_{version}.json.gz"
+                with gzip.open(fpath, 'rt', encoding='utf-8') as f:
+                    payload = json.load(f)
+                
+                geo_raw = payload.get("geojson")
+                geo_str = json.dumps(geo_raw) if isinstance(geo_raw, dict) else geo_raw
+                max_risk = float(payload.get("maxRisk", 1.0))
+                
+                entry = {
+                    "geojson": geo_str,
+                    "maxRisk": max_risk,
+                    "cellCount": payload.get("cellCount", 2030),
+                    "is_aggregate": True
+                }
+                self.national_overview_cache[disease][horizon] = entry
+                self.geojson_cache[disease][horizon] = entry
+                self.max_risks[(disease, horizon)] = max_risk
+                print(f"  Loaded National Overview: {disease} h={horizon} ({entry['cellCount']} cells)")
 
     def _load_geojson_from_disk(self, version: str):
         """Load pre-baked GeoJSON from gzipped disk files into memory."""
@@ -139,7 +210,9 @@ class DataManager:
                 else:
                     print(f"  [WARN] local_shap_{disease}_lead{h}.parquet not found — run generate_local_shap.py")
 
-        print("OK: Core data loaded.")
+        self._load_or_build_places_index()
+        print("OK: Core data and places index loaded.")
+
 
     def _h3_to_polygon(self, h3_index: str) -> list:
         """Convert H3 cell to GeoJSON Polygon coordinates using Python h3 library."""
@@ -247,11 +320,101 @@ class DataManager:
                 }
 
     def get_risk_geojson(self, disease: str, horizon: int) -> dict:
-        """Return pre-built GeoJSON string + maxRisk from cache."""
-        entry = self.geojson_cache.get(disease, {}).get(horizon)
+        """Return pre-built GeoJSON string + maxRisk from cache (prefers National Overview)."""
+        entry = self.national_overview_cache.get(disease, {}).get(horizon)
         if entry is None:
-            return {'geojson': '{"type":"FeatureCollection","features":[]}', 'maxRisk': 1.0}
+            entry = self.geojson_cache.get(disease, {}).get(horizon)
+        if entry is None:
+            return {'geojson': '{"type":"FeatureCollection","features":[]}', 'maxRisk': 1.0, 'is_aggregate': True}
         return entry
+
+    def get_national_overview(self, disease: str, horizon: int) -> dict:
+        """Return pre-built National Overview (H3 Res-4) covering 100% of India."""
+        return self.get_risk_geojson(disease, horizon)
+
+    def get_viewport_cells(
+        self,
+        min_lon: float, min_lat: float,
+        max_lon: float, max_lat: float,
+        disease: str, horizon: int,
+        limit: int = 10000,
+        state: str = None
+    ) -> dict:
+        """Query SQLite R*Tree index to retrieve exact H3 Res-7 cells intersecting the viewport."""
+        limit = max(100, min(limit, 25000))
+        if min_lon > max_lon:
+            min_lon, max_lon = max_lon, min_lon
+        if min_lat > max_lat:
+            min_lat, max_lat = max_lat, min_lat
+
+        col_prefix = {'dengue': 'd', 'malaria': 'm', 'syndemic': 's'}.get(disease, 'd')
+        val_col = f"{col_prefix}_h{horizon}"
+
+        conn = self._get_db()
+        cur = conn.cursor()
+
+        if state:
+            query = f"""
+                SELECT c.h3_index, c.district, c.state, c.lat, c.lon, c.{val_col}
+                FROM cell_index i
+                JOIN cells c ON i.id = c.id
+                WHERE i.min_lon <= ? AND i.max_lon >= ?
+                  AND i.min_lat <= ? AND i.max_lat >= ?
+                  AND c.state = ?
+                LIMIT ?
+            """
+            cur.execute(query, (max_lon, min_lon, max_lat, min_lat, state, limit))
+        else:
+            query = f"""
+                SELECT c.h3_index, c.district, c.state, c.lat, c.lon, c.{val_col}
+                FROM cell_index i
+                JOIN cells c ON i.id = c.id
+                WHERE i.min_lon <= ? AND i.max_lon >= ?
+                  AND i.min_lat <= ? AND i.max_lat >= ?
+                LIMIT ?
+            """
+            cur.execute(query, (max_lon, min_lon, max_lat, min_lat, limit))
+
+        rows = cur.fetchall()
+        max_risk = self.max_risks.get((disease, horizon), 1.0) or 1.0
+
+        features = []
+        for h3_idx, dist, st, lat, lon, score in rows:
+            if h3_idx in self.h3_poly_cache:
+                coords = self.h3_poly_cache[h3_idx]
+            else:
+                boundary = h3lib.cell_to_boundary(h3_idx)
+                coords = [[lng, lat] for lat, lng in boundary]
+                coords.append(coords[0])
+                if len(self.h3_poly_cache) < 40000:
+                    self.h3_poly_cache[h3_idx] = coords
+
+            raw_pct = (score / max_risk) * 99.9
+            pct = round(min(99.9, max(0.1, raw_pct)), 1)
+
+            features.append({
+                "type": "Feature",
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [coords]
+                },
+                "properties": {
+                    "h3_index": h3_idx,
+                    "district": dist or "Area",
+                    "state": st or "",
+                    "risk_score": round(float(score), 4),
+                    "risk_percent": pct,
+                    "is_aggregate": False
+                }
+            })
+
+        return {
+            "type": "FeatureCollection",
+            "features": features,
+            "total": len(features),
+            "maxRisk": max_risk,
+            "is_aggregate": False
+        }
 
     def get_latest_risk_fast(self, disease: str, horizon: int) -> list:
         """Returns lightweight array of [h3_index, risk_score] for ALL 620k cells in India."""
@@ -488,5 +651,217 @@ class DataManager:
         # Fallback: global importance (same for all cells — less ideal)
         return self.get_global_shap(disease, horizon)
 
+    def _load_or_build_places_index(self):
+        """Loads or builds precomputed index of districts and states for instant place search."""
+        places_file = self.disk_cache_dir / "places_index.json"
+        if places_file.exists():
+            try:
+                with open(places_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    self.districts_list = data.get('districts', [])
+                    self.states_list = data.get('states', [])
+                    print(f"[Places] Loaded {len(self.districts_list)} districts and {len(self.states_list)} states from cache.")
+            except Exception as e:
+                print(f"[Places] Error reading places_index.json: {e}")
+
+        # Build in-memory H3 map for O(1) cell lookups
+        if self.grid_df is not None:
+            self.h3_cell_map = dict(zip(
+                self.grid_df['h3_index'],
+                zip(self.grid_df['district'], self.grid_df['state'], self.grid_df['center_lat'], self.grid_df['center_lon'])
+            ))
+
+        if not self.districts_list and self.grid_df is not None:
+            print("[Places] Generating places index...")
+            dist_summary = self.grid_df.groupby(['district', 'state']).agg(
+                center_lat=('center_lat', 'mean'),
+                center_lon=('center_lon', 'mean'),
+                min_lat=('center_lat', 'min'),
+                max_lat=('center_lat', 'max'),
+                min_lon=('center_lon', 'min'),
+                max_lon=('center_lon', 'max'),
+                cell_count=('h3_index', 'count')
+            ).reset_index()
+            self.districts_list = dist_summary.round(5).to_dict('records')
+
+            state_summary = self.grid_df.groupby('state').agg(
+                center_lat=('center_lat', 'mean'),
+                center_lon=('center_lon', 'mean'),
+                min_lat=('center_lat', 'min'),
+                max_lat=('center_lat', 'max'),
+                min_lon=('center_lon', 'min'),
+                max_lon=('center_lon', 'max'),
+                district_count=('district', 'nunique'),
+                cell_count=('h3_index', 'count')
+            ).reset_index()
+            self.states_list = state_summary.round(5).to_dict('records')
+
+            try:
+                with open(places_file, 'w', encoding='utf-8') as f:
+                    json.dump({'districts': self.districts_list, 'states': self.states_list}, f)
+            except Exception as e:
+                print(f"[Places] Error writing places index: {e}")
+
+    def _get_district_top_cell(self, district: str, disease: str, horizon: int) -> dict:
+        """Returns the peak risk cell in the specified district."""
+        cache_key = (disease, horizon)
+        if cache_key not in self.top_cell_cache:
+            self._warm_top_cell_cache(disease, horizon)
+        return self.top_cell_cache.get(cache_key, {}).get(district, {})
+
+    def _warm_top_cell_cache(self, disease: str, horizon: int):
+        """Precomputes peak risk cell for each district for zero-latency lookups."""
+        cache_key = (disease, horizon)
+        self.top_cell_cache[cache_key] = {}
+        df = self._build_raw_risk(disease, horizon)
+        if df.empty or 'risk_score' not in df.columns or 'district' not in df.columns:
+            return
+        max_risk = float(df['risk_score'].max()) or 1.0
+        top_df = df.sort_values('risk_score', ascending=False).drop_duplicates('district')
+        for row in top_df.itertuples(index=False):
+            raw_pct = (float(row.risk_score) / max_risk) * 99.9
+            pct = round(min(99.9, max(0.1, raw_pct)), 1)
+            self.top_cell_cache[cache_key][row.district] = {
+                "h3_index": row.h3_index,
+                "risk_score": round(float(row.risk_score), 4),
+                "risk_percent": pct
+            }
+
+    def _get_single_cell_risk(self, h3_index: str, disease: str, horizon: int) -> dict:
+        """Retrieves risk percent and risk score for a single H3 cell."""
+        pred_col = f"pred_lgbm_lead_{horizon}"
+        if disease == "syndemic":
+            df_d = self.latest_preds.get("dengue")
+            df_m = self.latest_preds.get("malaria")
+            if df_d is not None and df_m is not None:
+                max_d = float(df_d[pred_col].max()) or 1.0
+                max_m = float(df_m[pred_col].max()) or 1.0
+                row_d = df_d[df_d['h3_index'] == h3_index]
+                row_m = df_m[df_m['h3_index'] == h3_index]
+                if not row_d.empty and not row_m.empty:
+                    val_d = float(row_d[pred_col].iloc[0])
+                    val_m = float(row_m[pred_col].iloc[0])
+                    syn_risk = ((val_d / max_d) * (val_m / max_m)) ** 0.5 * 10
+                    pct = round(min(99.9, max(0.1, (syn_risk / 10.0) * 99.9)), 1)
+                    return {"risk_score": round(syn_risk, 4), "risk_percent": pct}
+        else:
+            df = self.latest_preds.get(disease)
+            if df is not None and pred_col in df.columns:
+                row = df[df['h3_index'] == h3_index]
+                if not row.empty:
+                    max_risk = float(df[pred_col].max()) or 1.0
+                    val = float(row[pred_col].iloc[0])
+                    raw_pct = (val / max_risk) * 99.9
+                    pct = round(min(99.9, max(0.1, raw_pct)), 1)
+                    return {"risk_score": round(val, 4), "risk_percent": pct}
+        return {"risk_score": 0.0, "risk_percent": 0.0}
+
+    def search(self, q: str, disease: str = "dengue", horizon: int = 1, limit: int = 10) -> dict:
+        """Fast unified search across districts, states, and H3 cells."""
+        query = q.strip().lower()
+        if not query:
+            return {"query": "", "districts": [], "states": [], "cells": []}
+
+        results = {
+            "query": query,
+            "districts": [],
+            "states": [],
+            "cells": []
+        }
+
+        # 1. H3 cell detection
+        is_h3 = query.startswith("87") or (len(query) >= 6 and all(c in "0123456789abcdef" for c in query))
+        if is_h3:
+            if len(query) == 15 and query in self.h3_cell_map:
+                dist, state, lat, lon = self.h3_cell_map[query]
+                risk = self._get_single_cell_risk(query, disease, horizon)
+                results["cells"].append({
+                    "h3_index": query,
+                    "district": dist,
+                    "state": state,
+                    "center_lat": round(float(lat), 5),
+                    "center_lon": round(float(lon), 5),
+                    "risk_percent": risk["risk_percent"],
+                    "risk_score": risk["risk_score"]
+                })
+            elif len(query) >= 6 and self.grid_df is not None:
+                matches = self.grid_df[self.grid_df['h3_index'].str.startswith(query)].head(5)
+                for row in matches.itertuples(index=False):
+                    risk = self._get_single_cell_risk(row.h3_index, disease, horizon)
+                    results["cells"].append({
+                        "h3_index": row.h3_index,
+                        "district": row.district,
+                        "state": row.state,
+                        "center_lat": round(float(row.center_lat), 5),
+                        "center_lon": round(float(row.center_lon), 5),
+                        "risk_percent": risk["risk_percent"],
+                        "risk_score": risk["risk_score"]
+                    })
+
+        # 2. District search
+        if self.districts_list:
+            scored_districts = []
+            for d in self.districts_list:
+                d_name = d['district'].lower()
+                s_name = d['state'].lower()
+                score = 0
+                if d_name == query:
+                    score = 100
+                elif d_name.startswith(query):
+                    score = 80
+                elif f" {query}" in f" {d_name}":
+                    score = 70
+                elif query in d_name:
+                    score = 50
+                elif query in s_name:
+                    score = 30
+
+                if score > 0:
+                    scored_districts.append((score, d))
+
+            scored_districts.sort(key=lambda x: (x[0], x[1]['cell_count']), reverse=True)
+            for _, d in scored_districts[:limit]:
+                top_cell = self._get_district_top_cell(d['district'], disease, horizon)
+                item = {
+                    "district": d['district'],
+                    "state": d['state'],
+                    "center_lat": d['center_lat'],
+                    "center_lon": d['center_lon'],
+                    "bounds": [d['min_lon'], d['min_lat'], d['max_lon'], d['max_lat']],
+                    "cell_count": d['cell_count'],
+                    "top_cell": top_cell
+                }
+                results['districts'].append(item)
+
+        # 3. State search
+        if self.states_list:
+            scored_states = []
+            for s in self.states_list:
+                s_name = s['state'].lower()
+                score = 0
+                if s_name == query:
+                    score = 100
+                elif s_name.startswith(query):
+                    score = 80
+                elif query in s_name:
+                    score = 50
+
+                if score > 0:
+                    scored_states.append((score, s))
+
+            scored_states.sort(key=lambda x: (x[0], x[1]['cell_count']), reverse=True)
+            for _, s in scored_states[:4]:
+                results['states'].append({
+                    "state": s['state'],
+                    "center_lat": s['center_lat'],
+                    "center_lon": s['center_lon'],
+                    "bounds": [s['min_lon'], s['min_lat'], s['max_lon'], s['max_lat']],
+                    "district_count": s['district_count'],
+                    "cell_count": s['cell_count']
+                })
+
+        return results
+
 # Global singleton
 data_manager = DataManager()
+

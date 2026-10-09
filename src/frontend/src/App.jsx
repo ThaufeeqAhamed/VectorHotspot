@@ -1,9 +1,13 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Activity, ShieldAlert, Thermometer, Droplets, Map as MapIcon, ChevronRight, Sun, Moon } from 'lucide-react';
+import { Sun, Moon } from 'lucide-react';
 import MapComponent from './components/MapComponent';
 import HotspotSidebar from './components/HotspotSidebar';
 import AnalyticsPanel from './components/AnalyticsPanel';
-import { cachedFetch, primeCache } from './apiCache';
+import SearchBar from './components/SearchBar';
+import { primeCache } from './apiCache';
+import { registerLocation } from './locationRegistry';
+import { gridDisk } from 'h3-js';
+
 
 function App() {
   const [loading, setLoading] = useState(true);
@@ -16,14 +20,91 @@ function App() {
   const [theme, setTheme] = useState('dark');
   const horizonDebounce = useRef(null);
   
+  // Selected cell for analytics drill-down
+  const [selectedCell, setSelectedCell] = useState(null);
+  // Map navigation target from SearchBar
+  const [navigationTarget, setNavigationTarget] = useState(null);
+  // Feedback toast for navigation confirmations
+  const [searchFeedback, setSearchFeedback] = useState(null);
+  const feedbackTimeout = useRef(null);
+
+
   // Debounced horizon setter — avoids painting on every tick of a drag
   const setHorizonDebounced = useCallback((val) => {
     clearTimeout(horizonDebounce.current);
     horizonDebounce.current = setTimeout(() => setHorizon(val), 80);
   }, []);
-  
-  // Selected cell for analytics drill-down
-  const [selectedCell, setSelectedCell] = useState(null);
+
+  const showFeedback = useCallback((msg) => {
+    clearTimeout(feedbackTimeout.current);
+    setSearchFeedback(msg);
+    feedbackTimeout.current = setTimeout(() => {
+      setSearchFeedback(null);
+    }, 4500);
+  }, []);
+
+  const handleSelectLocation = useCallback((target) => {
+    setNavigationTarget({
+      ...target,
+      _ts: Date.now()
+    });
+
+    if (target.type === 'cell') {
+      setSelectedCell({
+        h3_index: target.h3_index,
+        district: target.district,
+        state: target.state,
+        risk_percent: target.risk_percent,
+        risk_score: target.risk_score,
+        fromSearch: true
+      });
+      showFeedback(`⬡ Cell: ${target.h3_index} (${target.district || 'India'})`);
+    } else if (target.type === 'district') {
+      if (target.top_cell?.h3_index) {
+        setSelectedCell({
+          h3_index: target.top_cell.h3_index,
+          district: target.name,
+          state: target.state,
+          risk_percent: target.top_cell.risk_percent,
+          risk_score: target.top_cell.risk_score,
+          fromSearch: true
+        });
+        showFeedback(`📍 Navigated to ${target.name}, ${target.state} • Peak Risk Cell selected (${target.top_cell.risk_percent}%)`);
+      } else {
+        showFeedback(`📍 Navigated to ${target.name}, ${target.state}`);
+      }
+    } else if (target.type === 'place') {
+      if (target.h3_index) {
+        let cellsToRegister = [target.h3_index];
+        try {
+          cellsToRegister = gridDisk(target.h3_index, 1);
+        } catch {
+          // ignore
+        }
+        cellsToRegister.forEach(h3 => {
+          registerLocation(h3, {
+            locationName: target.name,
+            district: target.district || target.name,
+            state: target.state || 'India',
+            fullName: target.fullName
+          });
+        });
+
+        setSelectedCell({
+          h3_index: target.h3_index,
+          locationName: target.name,
+          district: target.district || target.name,
+          state: target.state || 'India',
+          fullName: target.fullName,
+          fromSearch: true
+        });
+      }
+      const distInfo = target.district && target.district !== target.name ? ` (${target.district})` : '';
+      showFeedback(`📍 Navigated to ${target.name}${distInfo}`);
+    } else if (target.type === 'state') {
+      showFeedback(`🗺️ Region: ${target.name}`);
+    }
+  }, [showFeedback]);
 
   useEffect(() => {
     const init = async () => {
@@ -72,6 +153,7 @@ function App() {
     return `Week ${w} / ${y}`;
   };
 
+
   return (
     <>
       <MapComponent 
@@ -79,6 +161,7 @@ function App() {
         horizon={horizon} 
         onCellClick={setSelectedCell}
         selectedCell={selectedCell}
+        navigationTarget={navigationTarget}
         dataVersion={dataVersion}
         theme={theme}
       />
@@ -88,10 +171,19 @@ function App() {
           <div className="brand">
             <div className="brand-dot"></div>
             <h1>VectorHotspot</h1>
-            <span style={{color: 'var(--text-secondary)', fontSize: '0.9rem', marginLeft: '1rem'}}>
+            <span className="brand-target-info">
               Target: <strong style={{color: '#fca5a5', letterSpacing: '0.5px'}}>{metadata ? getPredictedDate(metadata.latest_year, metadata.latest_week, horizon) : ''}</strong>
               <span style={{opacity: 0.5, marginLeft: '0.5rem'}}>(Current: Week {metadata?.latest_week})</span>
             </span>
+          </div>
+
+          {/* Global Search Bar */}
+          <div className="header-search-slot">
+            <SearchBar 
+              disease={disease} 
+              horizon={horizon} 
+              onSelectLocation={handleSelectLocation} 
+            />
           </div>
           
           <div className="controls">
@@ -138,6 +230,14 @@ function App() {
           </div>
         </header>
 
+        {/* Floating Navigation Feedback Toast */}
+        {searchFeedback && (
+          <div className="search-toast glass-panel">
+            <span>{searchFeedback}</span>
+            <button className="toast-dismiss-btn" onClick={() => setSearchFeedback(null)}>×</button>
+          </div>
+        )}
+
         <div className="content-area">
           <HotspotSidebar 
             disease={disease} 
@@ -160,3 +260,4 @@ function App() {
 }
 
 export default App;
+

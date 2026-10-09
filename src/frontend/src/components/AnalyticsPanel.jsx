@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { X, Activity, BarChart2, RefreshCw } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
 import { cachedFetch } from '../apiCache';
+import { getLocation, registerLocation, resolveCellLocation } from '../locationRegistry';
 
 // Human-friendly, one-word mapping for all 45 technical model features
 const FEATURE_DICTIONARY = {
@@ -85,7 +86,48 @@ const AnalyticsPanel = ({ cell, disease, horizon, onClose }) => {
   const [shap,    setShap]      = useState([]);
   // 'loading' | 'stale' | 'fresh'
   const [status,  setStatus]    = useState('loading');
+  const [cellRisk, setCellRisk] = useState(cell.risk_percent);
   const aliveRef = useRef(null);
+
+  // Synchronized location info
+  const [locInfo, setLocInfo] = useState(() => {
+    if (!cell?.h3_index) return null;
+    return getLocation(cell.h3_index) || (cell.locationName ? {
+      locationName: cell.locationName,
+      district: cell.district,
+      state: cell.state
+    } : null);
+  });
+
+  useEffect(() => {
+    if (!cell?.h3_index) return;
+
+    if (cell.risk_percent !== undefined && cell.risk_percent !== null) {
+      setCellRisk(cell.risk_percent);
+    }
+
+    const cached = getLocation(cell.h3_index);
+    if (cached?.locationName) {
+      setLocInfo(cached);
+    } else if (cell.locationName) {
+      const reg = registerLocation(cell.h3_index, {
+        locationName: cell.locationName,
+        district: cell.district,
+        state: cell.state,
+        fullName: cell.fullName
+      });
+      setLocInfo(reg);
+    } else {
+      let active = true;
+      resolveCellLocation(cell.h3_index, cell.center_lat, cell.center_lon, cell.district, cell.state)
+        .then(res => {
+          if (active && res) {
+            setLocInfo(res);
+          }
+        });
+      return () => { active = false; };
+    }
+  }, [cell?.h3_index, cell?.locationName, cell?.district, cell?.state, cell?.risk_percent]);
 
   useEffect(() => {
     if (!cell?.h3_index) return;
@@ -102,6 +144,9 @@ const AnalyticsPanel = ({ cell, disease, horizon, onClose }) => {
 
     const applyHistory = (d) => {
       if (!alive.current) return;
+      if (d.risk_percent !== undefined && d.risk_percent !== null) {
+        setCellRisk(d.risk_percent);
+      }
       setHistory((d.history || []).map(h => ({
         week:      `W${h.week}`,
         'Past':    h.actual,
@@ -152,23 +197,57 @@ const AnalyticsPanel = ({ cell, disease, horizon, onClose }) => {
     });
   }, [shap]);
 
-  const riskDisplay = formatRisk(cell.risk_percent);
+  const displayName = locInfo?.locationName || cell.locationName || cell.district || 'Area';
+
+  let displaySub = '';
+  const dist = locInfo?.district || cell.district;
+  const st = locInfo?.state || cell.state;
+  if (dist && dist.toLowerCase() !== displayName.toLowerCase()) {
+    displaySub = `${dist}${st ? ', ' + st : ''}`;
+  } else if (st) {
+    displaySub = st;
+  }
+  displaySub = displaySub.replace(/,\s*$/, '').trim();
+
+  const riskDisplay = formatRisk(cellRisk ?? cell.risk_percent);
   const isFirstLoad = status === 'loading' && history.length === 0 && shap.length === 0;
 
   return (
     <div className="analytics-panel glass-panel">
       {/* ── Header ── */}
-      <div className="sidebar-header" style={{ justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <Activity size={18} color="var(--accent-blue)" />
-          <h2>{cell.district || 'Area'} Overview</h2>
+      <div className="sidebar-header" style={{ justifyContent: 'space-between', gap: '0.5rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', minWidth: 0, flex: 1 }}>
+          <Activity size={18} color="var(--accent-blue)" style={{ flexShrink: 0 }} />
+          <div style={{ minWidth: 0, overflow: 'hidden' }}>
+            <h2 style={{
+              fontSize: '1rem',
+              fontWeight: 600,
+              margin: 0,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis'
+            }} title={`${displayName} Overview`}>
+              {displayName}
+            </h2>
+            {displaySub && (
+              <div style={{
+                fontSize: '0.72rem',
+                color: 'var(--text-secondary)',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis'
+              }}>
+                {displaySub}
+              </div>
+            )}
+          </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexShrink: 0 }}>
           {status === 'stale' && (
             <RefreshCw size={12} style={{ opacity: 0.5, animation: 'spin 1.2s linear infinite' }} />
           )}
           {riskDisplay && (
-            <span className="risk-badge" style={{ padding: '0.2rem 0.6rem', fontSize: '0.75rem' }}>
+            <span className="risk-badge" style={{ padding: '0.2rem 0.6rem', fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
               {riskDisplay}% Risk
             </span>
           )}
