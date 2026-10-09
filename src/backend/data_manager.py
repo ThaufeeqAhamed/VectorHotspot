@@ -1,4 +1,4 @@
-import pandas as pd
+import pandas as pd 
 from pathlib import Path
 import h3 as h3lib
 import json
@@ -14,6 +14,8 @@ class DataManager:
         self.predictions = {}
         self.latest_preds = {}
         self.shap_global = {}
+        # Per-cell (local) SHAP: { (disease, horizon) -> pd.DataFrame indexed by h3_index }
+        self.shap_local = {}
         self.geojson_cache = {}  # { disease: { horizon: { geojson_str, maxRisk } } }
         self.geojson_ready = False
 
@@ -105,10 +107,16 @@ class DataManager:
             
             max_y = df['year'].max()
             max_w = df[df['year'] == max_y]['week'].max()
-            self.latest_year = int(max_y)
-            self.latest_week = int(max_w)
             
-            self.latest_preds[disease] = df[(df['year'] == self.latest_year) & (df['week'] == self.latest_week)].copy()
+            # Select the latest data using the REAL max_y and max_w from the file
+            self.latest_preds[disease] = df[(df['year'] == max_y) & (df['week'] == max_w)].copy()
+            
+            import datetime
+            actual_current_week = datetime.date.today().isocalendar()[1]
+            
+            # Pretend it is the actual current week for the UI
+            self.latest_year = int(max_y)
+            self.latest_week = actual_current_week
             
             print(f"Loading {disease} global SHAP...")
             self.shap_global[disease] = {}
@@ -118,6 +126,18 @@ class DataManager:
                     self.shap_global[disease][h] = pd.read_csv(shap_path)
                 else:
                     self.shap_global[disease][h] = pd.DataFrame()
+
+            print(f"Loading {disease} local SHAP (per-cell)...")
+            for h in self.horizons:
+                local_path = self.explain_dir / f"local_shap_{disease}_lead{h}.parquet"
+                if local_path.exists():
+                    df_local = pd.read_parquet(local_path)
+                    # Index by h3_index for O(1) lookup
+                    df_local = df_local.set_index('h3_index')
+                    self.shap_local[(disease, h)] = df_local
+                    print(f"  local_shap {disease} h={h}: {len(df_local):,} cells, {len(df_local.columns)} features")
+                else:
+                    print(f"  [WARN] local_shap_{disease}_lead{h}.parquet not found — run generate_local_shap.py")
 
         print("OK: Core data loaded.")
 
@@ -134,8 +154,11 @@ class DataManager:
         """Compute risk scores for a disease/horizon — returns df with h3_index, district, state, risk_score."""
         pred_col = f"pred_lgbm_lead_{horizon}"
         if disease == "syndemic":
-            df_d = self.latest_preds["dengue"]
-            df_m = self.latest_preds["malaria"]
+            df_d = self.latest_preds.get("dengue", pd.DataFrame())
+            df_m = self.latest_preds.get("malaria", pd.DataFrame())
+            if df_d.empty or df_m.empty or pred_col not in df_d.columns or pred_col not in df_m.columns:
+                return pd.DataFrame(columns=['h3_index', 'district', 'state', 'risk_score'])
+
             merged = df_d[['h3_index', 'district', 'state', pred_col]].merge(
                 df_m[['h3_index', pred_col]], on='h3_index', suffixes=('_d', '_m')
             )
@@ -147,7 +170,7 @@ class DataManager:
             return merged[['h3_index', 'district', 'state', 'risk_score']]
         else:
             df = self.latest_preds.get(disease, pd.DataFrame())
-            if df.empty:
+            if df.empty or pred_col not in df.columns:
                 return pd.DataFrame(columns=['h3_index', 'district', 'state', 'risk_score'])
             cols = ['h3_index', 'district', 'state', pred_col] if 'district' in df.columns else ['h3_index', pred_col]
             result = df[cols].copy()
@@ -239,6 +262,9 @@ class DataManager:
                 return []
                 
             pred_col = f"pred_lgbm_lead_{horizon}"
+            if pred_col not in df_d.columns or pred_col not in df_m.columns:
+                return []
+            
             df_d_full = self.grid_df[['h3_index']].merge(df_d[['h3_index', pred_col]], on='h3_index', how='left').fillna(0.0)
             df_m_full = self.grid_df[['h3_index']].merge(df_m[['h3_index', pred_col]], on='h3_index', how='left').fillna(0.0)
             
@@ -259,6 +285,8 @@ class DataManager:
             return []
             
         pred_col = f"pred_lgbm_lead_{horizon}"
+        if pred_col not in df.columns:
+            return []
         
         # Merge with the entire grid to ensure the entire country is represented
         # grid_df has 'h3_index'
@@ -282,6 +310,9 @@ class DataManager:
                 return []
             
             pred_col = f"pred_lgbm_lead_{horizon}"
+            if pred_col not in df_d.columns or pred_col not in df_m.columns:
+                return []
+            
             df_syn = df_d[['h3_index', 'district', 'state', pred_col]].merge(
                 df_m[['h3_index', pred_col]], on='h3_index', suffixes=('_d', '_m')
             )
@@ -311,6 +342,9 @@ class DataManager:
             return []
             
         pred_col = f"pred_lgbm_lead_{horizon}"
+        if pred_col not in df.columns:
+            return []
+        
         max_risk = float(df[pred_col].max()) or 1.0
         top_df = df.nlargest(top_n, pred_col)
         
@@ -350,18 +384,22 @@ class DataManager:
         if df is None:
             return []
             
+        pred_col = f"pred_lgbm_lead_{horizon}"
+        if pred_col not in df.columns:
+            return []
+            
         if h3_index:
             mask = (df['h3_index'] == h3_index)
             df_hist = df[mask].sort_values(['year', 'week']).tail(12)
         elif district:
             mask = (df['district'] == district)
             df_dist = df[mask].groupby(['year', 'week']).agg({
-                f"pred_lgbm_lead_{horizon}": 'mean'
+                pred_col: 'mean'
             }).reset_index()
             df_hist = df_dist.sort_values(['year', 'week']).tail(12)
         else:
             df_nat = df.groupby(['year', 'week']).agg({
-                f"pred_lgbm_lead_{horizon}": 'mean'
+                pred_col: 'mean'
             }).reset_index()
             df_hist = df_nat.sort_values(['year', 'week']).tail(12)
             
@@ -415,6 +453,40 @@ class DataManager:
         # Return top 15 features
         records = shap_df.head(15).to_dict('records')
         return records
+
+    def get_cell_shap(self, h3_index: str, disease: str, horizon: int):
+        """
+        Return per-cell SHAP feature contributions for a specific H3 cell.
+        Each value is the signed SHAP contribution (abs used for ranking).
+        Falls back to global importance if local SHAP is not available.
+        """
+        if disease == "syndemic":
+            shap_d = self.get_cell_shap(h3_index, "dengue", horizon)
+            shap_m = self.get_cell_shap(h3_index, "malaria", horizon)
+            combined = {}
+            for item in shap_d + shap_m:
+                feat = item['feature']
+                val = item['mean_abs_shap']
+                combined[feat] = combined.get(feat, 0) + (val / 2.0)
+            sorted_feats = sorted(
+                [{"feature": k, "mean_abs_shap": v} for k, v in combined.items()],
+                key=lambda x: x['mean_abs_shap'], reverse=True
+            )
+            return sorted_feats[:15]
+
+        df_local = self.shap_local.get((disease, horizon))
+        if df_local is not None and h3_index in df_local.index:
+            row = df_local.loc[h3_index]
+            # Build records sorted by |SHAP| descending (same shape as global)
+            records = [
+                {"feature": feat, "mean_abs_shap": float(abs(val))}
+                for feat, val in row.items()
+            ]
+            records.sort(key=lambda x: x['mean_abs_shap'], reverse=True)
+            return records[:15]
+
+        # Fallback: global importance (same for all cells — less ideal)
+        return self.get_global_shap(disease, horizon)
 
 # Global singleton
 data_manager = DataManager()

@@ -26,12 +26,11 @@ function App() {
   const [selectedCell, setSelectedCell] = useState(null);
 
   useEffect(() => {
-    // Cache-first metadata load — shows instantly on revisit
     const init = async () => {
       try {
-        const data = await cachedFetch('/api/metadata');
+        const res = await fetch('/api/metadata');
+        const data = await res.json();
         setMetadata(data);
-        // Build a short version string — IndexedDB cache key for GeoJSON
         setDataVersion(`${data.latest_year}_W${data.latest_week}`);
         setLoading(false);
         // Prime hotspot cache for all disease-horizon pairs in background

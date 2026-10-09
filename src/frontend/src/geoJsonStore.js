@@ -45,7 +45,7 @@ export async function idbGetGeo(disease, version) {
   try {
     const db = await openDB();
     return await new Promise((resolve) => {
-      const key = `geojson_v2_${disease}_${version}`;
+      const key = `geojson_v3_${disease}_${version}`;
       const req = db.transaction(STORE, 'readonly').objectStore(STORE).get(key);
       req.onsuccess = () => resolve(req.result?.value ?? null);
       req.onerror   = () => resolve(null);
@@ -60,7 +60,7 @@ export async function idbSetGeo(disease, version, horizons) {
   try {
     const db = await openDB();
     await new Promise((resolve) => {
-      const key = `geojson_v2_${disease}_${version}`;
+      const key = `geojson_v3_${disease}_${version}`;
       const tx  = db.transaction(STORE, 'readwrite');
       tx.objectStore(STORE).put({ key, value: horizons, ts: Date.now() });
       tx.oncomplete = () => resolve();

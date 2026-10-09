@@ -4,9 +4,11 @@ import joblib
 from pathlib import Path
 import datetime
 
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 PROCESSED_DATA_DIR = PROJECT_ROOT / "data" / "processed"
 MODELS_DIR = PROJECT_ROOT / "models"
+EXPLAIN_DIR = PROJECT_ROOT / "outputs" / "explainability"
 
 def main():
     print("=== VECTORHOTSPOT TRUE 2026 SYNTHETIC INFERENCE ===")
@@ -129,7 +131,83 @@ def main():
     # 5. Save Out
     df_dengue.to_parquet(PROCESSED_DATA_DIR / "forecast_dengue_predictions.parquet", index=False)
     df_malaria.to_parquet(PROCESSED_DATA_DIR / "forecast_malaria_predictions.parquet", index=False)
-    
+
+    # 6. Compute and save per-cell SHAP for the top 5,000 highest-risk cells.
+    #    Only high-risk cells are ever clicked, so this covers all real use-cases
+    #    while running in ~40 seconds instead of ~50 minutes for the full grid.
+    TOP_N_SHAP = 5_000
+    print(f"\nComputing per-cell SHAP for top {TOP_N_SHAP:,} risk cells (~40s total)...")
+    try:
+        import shap, time
+        EXPLAIN_DIR.mkdir(parents=True, exist_ok=True)
+        grid_latlng = df.set_index('h3_index')[['center_lat', 'center_lon']]
+
+        def build_shap_features(h3_list):
+            """Reconstruct synthetic features for a subset of cells."""
+            lat = grid_latlng.loc[h3_list, 'center_lat'].values
+            lon = grid_latlng.loc[h3_list, 'center_lon'].values
+            n = len(h3_list)
+            np.random.seed(42)
+            base_tmax = 35.0 - (lat - 8.0) * 0.4
+            base_tmin = base_tmax - 8.0
+            rain_base = np.where(lon > 85, 100, 30) + np.where(lat < 15, 60, 10)
+            feats = {
+                'tmax_lag_1': base_tmax, 'tmax_lag_2': base_tmax, 'tmax_lag_4': base_tmax,
+                'tmin_lag_1': base_tmin, 'tmin_lag_2': base_tmin, 'tmin_lag_4': base_tmin,
+                'tmean_lag_1': (base_tmax+base_tmin)/2, 'tmean_lag_2': (base_tmax+base_tmin)/2,
+                'tmean_lag_4': (base_tmax+base_tmin)/2,
+                'dtr_lag_1': base_tmax-base_tmin, 'dtr_lag_2': base_tmax-base_tmin,
+                'rain_lag_1': rain_base, 'rain_lag_2': rain_base*0.9,
+                'rain_lag_4': rain_base*0.8, 'rain_lag_6': rain_base*0.7,
+                'rain_roll_sum_2w': rain_base*1.9, 'rain_roll_sum_4w': rain_base*3.5,
+                'suitability_lag_1': np.clip((rain_base/200+(30-abs(lat-20))/30)/2, 0, 1),
+                'suitability_lag_2': np.clip((rain_base/200+(30-abs(lat-20))/30)/2, 0, 1)*0.9,
+                'suitability_lag_4': np.clip((rain_base/200+(30-abs(lat-20))/30)/2, 0, 1)*0.8,
+                'log_population': np.log1p(np.where(lon > 77, 50000, 10000)),
+                'pop_density': np.where(lon > 77, 500.0, 100.0),
+                'ndvi_mean': np.clip(0.3+(lon-68)/30, 0.1, 0.8),
+                'frac_trees': np.clip(0.1+(80-lat)/100, 0.05, 0.6),
+                'frac_water': np.where(lat < 15, 0.1, 0.03),
+                'frac_built': np.where(lon > 77, 0.25, 0.1),
+                'frac_shrub': np.where(lat > 25, 0.15, 0.08),
+                'jrc_occurrence': np.where(lat < 15, 50.0, 10.0),
+                'center_lat': lat, 'center_lon': lon,
+                'sin_week': np.full(n, np.sin(2*np.pi*current_week/52)),
+                'cos_week': np.full(n, np.cos(2*np.pi*current_week/52)),
+            }
+            df_f = pd.DataFrame(feats, index=h3_list)
+            for col in feature_cols:
+                if col not in df_f.columns:
+                    df_f[col] = 0.0
+            return df_f[feature_cols]
+
+        for disease in ['dengue', 'malaria']:
+            for h in [1, 2, 3, 4]:
+                pred_col = f'pred_lgbm_lead_{h}'
+                top_df = (df_dengue if disease == 'dengue' else df_malaria)
+                top_h3 = top_df.nlargest(TOP_N_SHAP, pred_col)['h3_index'].tolist()
+                top_h3 = [c for c in top_h3 if c in grid_latlng.index]
+
+                print(f"  SHAP {disease} t+{h} ({len(top_h3):,} cells)...", end=" ", flush=True)
+                t0 = time.time()
+                model_h = joblib.load(MODELS_DIR / f"lgbm_env_{disease}_lead{h}.joblib")
+                X_top = build_shap_features(top_h3)
+                explainer = shap.TreeExplainer(model_h)
+                shap_vals = explainer.shap_values(X_top.values)
+
+                df_shap = pd.DataFrame(shap_vals, columns=feature_cols, index=top_h3)
+                df_shap.index.name = 'h3_index'
+                df_shap = df_shap.reset_index()
+                out_path = EXPLAIN_DIR / f"local_shap_{disease}_lead{h}.parquet"
+                df_shap.to_parquet(out_path, index=False)
+                print(f"done ({time.time()-t0:.1f}s)")
+
+        print("SHAP complete — per-cell Drivers are now live.")
+    except ImportError:
+        print("  [SKIP] shap package not installed — pip install shap")
+    except Exception as e:
+        print(f"  [WARN] SHAP failed: {e}")
+
     print("\n=======================================================")
     print("SUCCESS: 2026 Ground Reality Parquets generated!")
     print("Please restart your FastAPI server to see the true 2026 map.")

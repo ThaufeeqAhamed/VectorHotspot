@@ -94,8 +94,9 @@ def get_risk_geojson(
                         content='{"detail":"GeoJSON cache is building, retry in ~10s"}',
                         media_type='application/json')
     entry = data_manager.get_risk_geojson(disease, horizon)
+    content = f'{{"geojson":{entry["geojson"]},"maxRisk":{entry["maxRisk"]}}}'
     return Response(
-        content=json.dumps({'geojson': json.loads(entry['geojson']), 'maxRisk': entry['maxRisk']}),
+        content=content,
         media_type='application/json'
     )
 
@@ -113,12 +114,13 @@ def get_risk_geojson_all(
         return Response(status_code=503, headers={"Retry-After": "10"},
                         content='{"detail":"GeoJSON cache is building, please retry in ~10s"}',
                         media_type='application/json')
-    result = {}
+    horizons_parts = []
     for h in data_manager.horizons:
         entry = data_manager.get_risk_geojson(disease, h)
-        result[str(h)] = {'geojson': json.loads(entry['geojson']), 'maxRisk': entry['maxRisk']}
+        horizons_parts.append(f'"{h}":{{"geojson":{entry["geojson"]},"maxRisk":{entry["maxRisk"]}}}')
+    content = f'{{"disease":"{disease}","horizons":{{{",".join(horizons_parts)}}}}}'
     return Response(
-        content=json.dumps({'disease': disease, 'horizons': result}),
+        content=content,
         media_type='application/json'
     )
 
@@ -195,23 +197,29 @@ def get_cell_forecast(
     }
 
 @app.get("/api/cell/{h3_id}/shap")
-def get_cell_shap(
+def get_cell_shap_endpoint(
     h3_id: str,
     disease: str = Query(..., description="Disease name"),
     horizon: int = Query(1, ge=1, le=4)
 ):
     """
-    Returns global SHAP importance for the requested disease/horizon.
-    (Local SHAP is too large to load in memory for the API currently).
+    Returns per-cell SHAP feature importance for the specified H3 cell.
+    Uses local (cell-specific) SHAP values when available, falls back to
+    global importance if the cell is outside the local SHAP index.
     """
     if disease not in data_manager.api_diseases:
         raise HTTPException(status_code=400, detail="Invalid disease")
         
-    shap_records = data_manager.get_global_shap(disease, horizon)
+    shap_records = data_manager.get_cell_shap(h3_id, disease, horizon)
+    source = "local" if any(
+        data_manager.shap_local.get((d, horizon)) is not None and
+        h3_id in data_manager.shap_local[(d, horizon)].index
+        for d in (["dengue", "malaria"] if disease == "syndemic" else [disease])
+    ) else "global"
     return {
         "h3_index": h3_id,
         "disease": disease,
         "horizon": horizon,
-        "explanation": "Global SHAP importance",
+        "explanation": f"{'Cell-specific' if source == 'local' else 'Global'} SHAP importance",
         "top_features": shap_records
     }

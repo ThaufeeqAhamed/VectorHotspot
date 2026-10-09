@@ -25,6 +25,80 @@ const COLOR_STOPS = [
 
 const LEGEND_GRADIENT = 'linear-gradient(to right, rgba(59, 130, 246, 0.5) 0%, rgba(34, 197, 94, 0.7) 25%, rgba(249, 115, 22, 0.8) 50%, rgba(239, 68, 68, 0.95) 75%, rgba(153, 27, 27, 1.0) 100%)';
 
+const DARK_STYLE = {
+  version: 8,
+  sources: {
+    'esri-dark': {
+      type: 'raster',
+      tiles: [
+        'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+      ],
+      tileSize: 256,
+      attribution: '&copy; Esri &mdash; Esri, DeLorme, NAVTEQ',
+    },
+    'esri-dark-ref': {
+      type: 'raster',
+      tiles: [
+        'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}',
+      ],
+      tileSize: 256,
+    },
+  },
+  layers: [
+    {
+      id: 'esri-dark-tiles',
+      type: 'raster',
+      source: 'esri-dark',
+      minzoom: 0,
+      maxzoom: 16,
+    },
+    {
+      id: 'esri-dark-ref-tiles',
+      type: 'raster',
+      source: 'esri-dark-ref',
+      minzoom: 0,
+      maxzoom: 16,
+    },
+  ],
+};
+
+const LIGHT_STYLE = {
+  version: 8,
+  sources: {
+    'esri-light': {
+      type: 'raster',
+      tiles: [
+        'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+      ],
+      tileSize: 256,
+      attribution: '&copy; Esri &mdash; Esri, DeLorme, NAVTEQ',
+    },
+    'esri-light-ref': {
+      type: 'raster',
+      tiles: [
+        'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}',
+      ],
+      tileSize: 256,
+    },
+  },
+  layers: [
+    {
+      id: 'esri-light-tiles',
+      type: 'raster',
+      source: 'esri-light',
+      minzoom: 0,
+      maxzoom: 16,
+    },
+    {
+      id: 'esri-light-ref-tiles',
+      type: 'raster',
+      source: 'esri-light-ref',
+      minzoom: 0,
+      maxzoom: 16,
+    },
+  ],
+};
+
 const MapComponent = ({ disease, horizon, onCellClick, selectedCell, dataVersion, theme = 'dark' }) => {
   const mapContainer = useRef(null);
   const map          = useRef(null);
@@ -42,16 +116,18 @@ const MapComponent = ({ disease, horizon, onCellClick, selectedCell, dataVersion
   useEffect(() => {
     if (map.current) return;
 
+    const initialStyle = theme === 'light' ? LIGHT_STYLE : DARK_STYLE;
+
     map.current = new maplibregl.Map({
       container: mapContainer.current,
-      style: theme === 'light' 
-        ? 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json'
-        : 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
+      style: initialStyle,
       center: [78.9629, 20.5937],
       zoom: 4,
       pitch: 40,
       attributionControl: false,
     });
+
+    map.current.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
 
     const setupLayers = () => {
       if (!map.current.getSource('hex-grid')) {
@@ -63,6 +139,8 @@ const MapComponent = ({ disease, horizon, onCellClick, selectedCell, dataVersion
         });
       }
 
+      const refLayer = map.current.getLayer('esri-dark-ref-tiles') ? 'esri-dark-ref-tiles' : (map.current.getLayer('esri-light-ref-tiles') ? 'esri-light-ref-tiles' : undefined);
+
       if (!map.current.getLayer('hex-fill')) {
         map.current.addLayer({
           id: 'hex-fill',
@@ -72,7 +150,7 @@ const MapComponent = ({ disease, horizon, onCellClick, selectedCell, dataVersion
             'fill-color': COLOR_STOPS,
             'fill-opacity': 0.8,
           },
-        });
+        }, refLayer);
       }
 
       if (!map.current.getSource('hex-highlight')) {
@@ -87,7 +165,7 @@ const MapComponent = ({ disease, horizon, onCellClick, selectedCell, dataVersion
           type: 'line',
           source: 'hex-highlight',
           paint: { 'line-color': document.body.getAttribute('data-theme') === 'light' ? '#0f172a' : '#ffffff', 'line-width': 2.5 },
-        });
+        }, refLayer);
       }
     };
 
@@ -135,9 +213,15 @@ const MapComponent = ({ disease, horizon, onCellClick, selectedCell, dataVersion
 
       mapLoaded.current = true;
 
-      // Eagerly pre-load all diseases from IndexedDB / network in background
-      // so disease switching is always instant (cache hit)
-      ['dengue', 'malaria', 'syndemic'].forEach(d => prefetchDisease(d));
+      // 1. Prioritize active disease immediately for fast first paint
+      prefetchDisease(disease);
+
+      // 2. Preload other diseases in background with delay to prevent bandwidth congestion
+      ['dengue', 'malaria', 'syndemic']
+        .filter(d => d !== disease)
+        .forEach((d, idx) => {
+          setTimeout(() => prefetchDisease(d), (idx + 1) * 2500);
+        });
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -271,11 +355,9 @@ const MapComponent = ({ disease, horizon, onCellClick, selectedCell, dataVersion
   // ── 8. Theme toggle ──────────────────────────────────────────────────
   useEffect(() => {
     if (!mapLoaded.current || !map.current) return;
-    const styleUrl = theme === 'light' 
-      ? 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json'
-      : 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
+    const nextStyle = theme === 'light' ? LIGHT_STYLE : DARK_STYLE;
     
-    map.current.setStyle(styleUrl);
+    map.current.setStyle(nextStyle);
     map.current.once('style.load', () => {
       if (!map.current.getSource('hex-grid')) {
         map.current.addSource('hex-grid', {
